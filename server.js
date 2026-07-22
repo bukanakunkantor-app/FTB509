@@ -208,46 +208,69 @@ const generateDocx = async (item, status, callback) => {
 
 // Helper to safely extract request body across local Node server and Vercel Serverless Functions
 function getParsedBody(req, callback) {
-    if (req.body !== undefined && req.body !== null) {
-        if (typeof req.body === 'object') {
-            return callback(null, req.body);
-        }
-        if (typeof req.body === 'string' && req.body.trim().length > 0) {
-            try {
-                return callback(null, JSON.parse(req.body));
-            } catch (e) {
-                return callback(e);
-            }
+    // 1. If Vercel or Express middleware already parsed req.body as an object
+    if (req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) {
+        return callback(null, req.body);
+    }
+
+    // 2. If req.body is a string
+    if (typeof req.body === 'string') {
+        const trimmed = req.body.trim();
+        if (!trimmed) return callback(null, {});
+        try {
+            return callback(null, JSON.parse(trimmed));
+        } catch (e) {
+            return callback(e);
         }
     }
 
+    // 3. If req.body is a Buffer
+    if (Buffer.isBuffer(req.body)) {
+        try {
+            const str = req.body.toString('utf-8').trim();
+            return callback(null, str ? JSON.parse(str) : {});
+        } catch (e) {
+            return callback(e);
+        }
+    }
+
+    // 4. Stream reading for standard Node http server
     let body = '';
     let isHandled = false;
 
-    const onData = chunk => {
-        body += chunk;
-    };
-
-    const onEnd = () => {
+    const finish = () => {
         if (isHandled) return;
         isHandled = true;
+        const trimmed = body.trim();
+        if (!trimmed) {
+            return callback(null, {});
+        }
         try {
-            const parsed = body && body.trim() ? JSON.parse(body) : {};
+            const parsed = JSON.parse(trimmed);
             callback(null, parsed);
         } catch (e) {
             callback(e);
         }
     };
 
-    req.on('data', onData);
-    req.on('end', onEnd);
+    req.on('data', chunk => {
+        body += chunk;
+    });
 
+    req.on('end', () => {
+        finish();
+    });
+
+    req.on('error', (err) => {
+        if (!isHandled) {
+            isHandled = true;
+            callback(err);
+        }
+    });
+
+    // If stream is already ended or complete, finish immediately
     if (req.readableEnded || req.complete) {
-        setImmediate(() => {
-            if (!isHandled) {
-                onEnd();
-            }
-        });
+        setImmediate(finish);
     }
 }
 
@@ -263,7 +286,8 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    const parsedUrl = new URL(req.url, `http://${req.headers.host}`);
+    const reqUrl = req.headers['x-forwarded-url'] || req.headers['x-matched-path'] || req.url;
+    const parsedUrl = new URL(reqUrl, `http://${req.headers.host || 'localhost'}`);
     const pathname = parsedUrl.pathname;
 
     // API Routes
