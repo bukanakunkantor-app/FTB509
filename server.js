@@ -113,17 +113,23 @@ const formatIndoDate = (dateStr, includeDay = true) => {
     }
 };
 
-// Helper to generate docx using PHP script
-const generateDocx = (item, status, callback) => {
+let JSZip = null;
+try {
+    JSZip = require('jszip');
+} catch (e) {
+    console.warn('JSZip module not found. Run npm install jszip');
+}
+
+// Helper to generate docx using JSZip (Cloud-native / Vercel ready)
+const generateDocx = async (item, status, callback) => {
     if (status !== 'Disetujui' && status !== 'Ditolak') {
         return callback(null);
     }
-    const phpPath = 'C:\\xampp\\php\\php.exe';
-    const scriptPath = path.join(__dirname, 'generate_docx.php');
     const templateFilename = status === 'Disetujui' ? 'Setuju.docx' : 'Tolak.docx';
     const templatePath = path.join(__dirname, templateFilename);
 
-    const genDir = path.join(__dirname, 'frontend', 'generated');
+    const isVercel = !!process.env.VERCEL;
+    const genDir = isVercel ? path.join('/tmp', 'generated') : path.join(__dirname, 'frontend', 'generated');
     if (!fs.existsSync(genDir)) {
         fs.mkdirSync(genDir, { recursive: true });
     }
@@ -150,14 +156,54 @@ const generateDocx = (item, status, callback) => {
         replacements['alasan_tolak'] = item.alasan_tolak || '';
     }
 
-    execFile(phpPath, [scriptPath, templatePath, outputPath, JSON.stringify(replacements)], (error, stdout, stderr) => {
-        if (error) {
-            console.error('Error generating docx:', error, stderr);
-            return callback(error);
+    if (JSZip && fs.existsSync(templatePath)) {
+        try {
+            const data = fs.readFileSync(templatePath);
+            const zip = await JSZip.loadAsync(data);
+
+            const xmlFiles = Object.keys(zip.files).filter(filename => 
+                filename === 'word/document.xml' || filename.startsWith('word/header') || filename.startsWith('word/footer')
+            );
+
+            for (const filename of xmlFiles) {
+                let xmlText = await zip.files[filename].async('string');
+                for (const [key, val] of Object.entries(replacements)) {
+                    const xmlSafeVal = String(val || '')
+                        .replace(/&/g, '&amp;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;')
+                        .replace(/"/g, '&quot;')
+                        .replace(/'/g, '&apos;');
+                    
+                    xmlText = xmlText.split(key).join(xmlSafeVal);
+                }
+                zip.file(filename, xmlText);
+            }
+
+            const buffer = await zip.generateAsync({ type: 'nodebuffer' });
+            fs.writeFileSync(outputPath, buffer);
+            console.log('Docx generated using JSZip:', outputFilename);
+            return callback(null, `/generated/${outputFilename}`);
+        } catch (err) {
+            console.error('Error generating docx with JSZip:', err);
         }
-        console.log('Docx generated output:', stdout);
-        callback(null, `/generated/${outputFilename}`);
-    });
+    }
+
+    // Fallback to PHP if JSZip is not installed
+    const phpPath = 'C:\\xampp\\php\\php.exe';
+    const scriptPath = path.join(__dirname, 'generate_docx.php');
+    if (fs.existsSync(phpPath) && fs.existsSync(scriptPath)) {
+        execFile(phpPath, [scriptPath, templatePath, outputPath, JSON.stringify(replacements)], (error, stdout, stderr) => {
+            if (error) {
+                console.error('Error generating docx via PHP:', error, stderr);
+                return callback(error);
+            }
+            console.log('Docx generated output:', stdout);
+            callback(null, `/generated/${outputFilename}`);
+        });
+    } else {
+        callback(new Error('No docx generator available'));
+    }
 };
 
 const server = http.createServer((req, res) => {
@@ -524,6 +570,8 @@ const server = http.createServer((req, res) => {
     let filePath = '';
     if (pathname === '/' || pathname === '/index.html') {
         filePath = path.join(__dirname, 'frontend', 'index.html');
+    } else if (pathname.startsWith('/generated/') && process.env.VERCEL) {
+        filePath = path.join('/tmp', pathname);
     } else {
         filePath = path.join(__dirname, 'frontend', pathname);
     }
@@ -561,6 +609,10 @@ const server = http.createServer((req, res) => {
     });
 });
 
-server.listen(PORT, () => {
-    console.log(`Development server running at http://localhost:${PORT}`);
-});
+if (require.main === module) {
+    server.listen(PORT, () => {
+        console.log(`Development server running at http://localhost:${PORT}`);
+    });
+}
+
+module.exports = server;

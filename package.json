@@ -1,0 +1,14 @@
+{
+  "name": "aplikasi-ftb",
+  "version": "1.0.0",
+  "description": "Aplikasi Flexibilitas Tempat Bekerja (FTB) KPP Pratama Semarang Tengah",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "jszip": "^3.10.1",
+    "pg": "^8.11.3"
+  }
+}
