@@ -1043,7 +1043,7 @@ function App() {
                                     <div style={{ background: 'rgba(79,70,229,0.06)', width: '60px', height: '60px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem', color: 'var(--primary)' }}>
                                         <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect width="18" height="11" x="3" y="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
                                     </div>
-                                    <h2 style={{ textAlign: 'center' }}>Otentikasi Administrator</h2>
+                                    <h2 style={{ display: 'block', textAlign: 'center', width: '100%', marginBottom: '0.5rem' }}>Otentikasi Administrator</h2>
                                     <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem', textAlign: 'center' }}>Silakan masukkan kata sandi admin untuk mengakses panel persetujuan.</p>
                                     <form onSubmit={handleAdminLogin}>
                                         <div className="form-group" style={{ textAlign: 'left' }}>
