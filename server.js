@@ -206,6 +206,51 @@ const generateDocx = async (item, status, callback) => {
     }
 };
 
+// Helper to safely extract request body across local Node server and Vercel Serverless Functions
+function getParsedBody(req, callback) {
+    if (req.body !== undefined && req.body !== null) {
+        if (typeof req.body === 'object') {
+            return callback(null, req.body);
+        }
+        if (typeof req.body === 'string' && req.body.trim().length > 0) {
+            try {
+                return callback(null, JSON.parse(req.body));
+            } catch (e) {
+                return callback(e);
+            }
+        }
+    }
+
+    let body = '';
+    let isHandled = false;
+
+    const onData = chunk => {
+        body += chunk;
+    };
+
+    const onEnd = () => {
+        if (isHandled) return;
+        isHandled = true;
+        try {
+            const parsed = body && body.trim() ? JSON.parse(body) : {};
+            callback(null, parsed);
+        } catch (e) {
+            callback(e);
+        }
+    };
+
+    req.on('data', onData);
+    req.on('end', onEnd);
+
+    if (req.readableEnded || req.complete) {
+        setImmediate(() => {
+            if (!isHandled) {
+                onEnd();
+            }
+        });
+    }
+}
+
 const server = http.createServer((req, res) => {
     // Enable CORS
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -259,16 +304,17 @@ const server = http.createServer((req, res) => {
     }
 
     if (pathname === '/api/permohonan' && req.method === 'POST') {
-        let body = '';
-        req.on('data', chunk => { body += chunk; });
-        req.on('end', () => {
-            try {
-                const item = JSON.parse(body);
-                if (!item.nama_pegawai || !item.nip || !item.jabatan || !item.unit_kerja_asal || !item.nomor_whatsapp || !item.nomor_whatsapp_kepegawaian || !item.nomor_nota_dinas || !item.tanggal_nota_dinas || !item.tanggal_mulai || !item.tanggal_selesai) {
-                    res.writeHead(400, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ error: 'Missing required fields' }));
-                    return;
-                }
+        getParsedBody(req, (err, item) => {
+            if (err || !item) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Invalid JSON payload' }));
+                return;
+            }
+            if (!item.nama_pegawai || !item.nip || !item.jabatan || !item.unit_kerja_asal || !item.nomor_whatsapp || !item.nomor_whatsapp_kepegawaian || !item.nomor_nota_dinas || !item.tanggal_nota_dinas || !item.tanggal_mulai || !item.tanggal_selesai) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Missing required fields' }));
+                return;
+            }
 
                 // Calculate working days duration (excluding weekends & 2026 Indonesian holidays)
                 const parseLocalDate = (dateStr) => {
@@ -427,10 +473,6 @@ const server = http.createServer((req, res) => {
                     res.writeHead(201, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify(newItem));
                 }
-            } catch (e) {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: 'Invalid JSON payload' }));
-            }
         });
         return;
     }
@@ -441,12 +483,13 @@ const server = http.createServer((req, res) => {
         // Format: /api/permohonan/{id}/status
         const id = parts[3];
 
-        let body = '';
-        req.on('data', chunk => { body += chunk; });
-        req.on('end', () => {
-            try {
-                const payload = JSON.parse(body);
-                const status = payload.status; // 'Disetujui' or 'Ditolak' or 'Menunggu'
+        getParsedBody(req, (err, payload) => {
+            if (err || !payload) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Invalid JSON payload' }));
+                return;
+            }
+            const status = payload.status; // 'Disetujui' or 'Ditolak' or 'Menunggu'
 
                 if (!status || !['Menunggu', 'Disetujui', 'Ditolak'].includes(status)) {
                     res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -558,10 +601,6 @@ const server = http.createServer((req, res) => {
                         });
                     }
                 }
-            } catch (e) {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: 'Invalid JSON payload' }));
-            }
         });
         return;
     }
