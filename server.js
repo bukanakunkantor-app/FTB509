@@ -12,6 +12,9 @@ const pgUrl = process.env.DATABASE_URL ||
 
 if (pgUrl) {
     try {
+        // Bypass TLS self-signed certificate rejection for Supabase connection poolers
+        process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
         const { Pool } = require('pg');
         pool = new Pool({
             connectionString: pgUrl,
