@@ -1375,3 +1375,44 @@ tr:hover td {
     border-top-left-radius: var(--radius-lg);
     border-top-right-radius: var(--radius-lg);
 }
+
+/* Admin Login Card Centering */
+.admin-login-box {
+    margin: 2.5rem auto;
+    max-width: 440px;
+    text-align: center;
+    padding: 2.5rem 2rem;
+}
+
+.admin-login-box h2 {
+    text-align: center;
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+    color: var(--text-dark);
+}
+
+.admin-login-box p {
+    text-align: center;
+}
+
+.btn-admin-auth {
+    width: 100%;
+    margin-top: 1rem;
+    padding: 0.85rem 1.5rem;
+    background: var(--primary);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-weight: 600;
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.btn-admin-auth:hover {
+    background: var(--primary-hover);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 14px rgba(79, 70, 229, 0.35);
+}
+
