@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FTB Semarang Tengah</title>
+    <!-- Premium Google Fonts -->
+    <link rel="stylesheet" href="style.css">
+    <!-- Load React, ReactDOM, and Babel for in-browser JSX compilation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js" crossorigin></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"
+        crossorigin></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.22.9/babel.min.js" crossorigin></script>
+    <!-- Lucide Icons for clean vector icon ornaments -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lucide/0.263.0/umd/lucide.min.js"></script>
+</head>
+
+<body>
+
+    <!-- Floating Background Ornaments (Aesthetic Glassmorphism Details) -->
+    <div class="ornament ornament-1"></div>
+    <div class="ornament ornament-2"></div>
+    <div class="ornament ornament-3"></div>
+
+    <!-- React App Root Container -->
+    <div id="root">
+        <!-- Pre-loading layout skeleton to keep UX smooth -->
+        <div
+            style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 80vh; color: #4f46e5; font-family: sans-serif;">
+            <div
+                style="border: 4px solid #f3f3f3; border-top: 4px solid #4f46e5; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin-bottom: 15px;">
+            </div>
+            <h2>Memuat Aplikasi FTB...</h2>
+        </div>
+    </div>
+
+    <style>
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+
+    <!-- Load the main React application script -->
+    <script type="text/babel" data-presets="react" src="app.js"></script>
+
+</body>
+
+</html>
