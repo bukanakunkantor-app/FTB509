@@ -176,8 +176,9 @@ const generateDocx = async (item, status, callback) => {
             for (const filename of xmlFiles) {
                 let xmlText = await zip.files[filename].async('string');
                 
-                // Change all text colors (including red placeholders) to black (000000)
-                xmlText = xmlText.replace(/<w:color\s+[^>]*?\/>/gi, '<w:color w:val="000000"/>');
+                // Change only red font colors (placeholder text #FF0000) to black (000000), leaving gray (#BFBFBF) for "Ditandatangani secara elektronik"
+                xmlText = xmlText.replace(/<w:color\s+[^>]*?w:val="(?:FF0000|C00000|ED1C24|E00000|D00000|red)"[^>]*?\/>/gi, '<w:color w:val="000000"/>');
+                xmlText = xmlText.replace(/<w:color\s+[^>]*?w:val='(?:FF0000|C00000|ED1C24|E00000|D00000|red)'[^>]*?\/>/gi, "<w:color w:val='000000'/>");
 
                 for (const [key, val] of Object.entries(replacements)) {
                     const xmlSafeVal = String(val || '')
