@@ -4,7 +4,12 @@ const path = require('path');
 const { execFile } = require('child_process');
 
 let pool = null;
-const pgUrl = process.env.DATABASE_URL;
+const pgUrl = process.env.DATABASE_URL || 
+              process.env.POSTGRES_URL || 
+              process.env.POSTGRES_PRISMA_URL || 
+              process.env.POSTGRES_URL_NON_POOLING || 
+              process.env.SUPABASE_DATABASE_URL;
+
 if (pgUrl) {
     try {
         const { Pool } = require('pg');
@@ -14,7 +19,7 @@ if (pgUrl) {
         });
         console.log('Database: Connected to PostgreSQL (Supabase)');
     } catch (e) {
-        console.warn('Database Warning: DATABASE_URL is set but "pg" module is not installed. Run "npm install pg" to use Supabase. Falling back to JSON file storage.');
+        console.warn('Database Warning: DATABASE_URL/POSTGRES_URL is set but "pg" module is not installed. Run "npm install pg" to use Supabase.');
     }
 }
 
@@ -297,7 +302,7 @@ const server = http.createServer((req, res) => {
                 if (err) {
                     console.error('Postgres error fetching data:', err);
                     res.writeHead(500, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ error: 'Database error fetching data' }));
+                    res.end(JSON.stringify({ error: `Database Error: ${err.message}` }));
                     return;
                 }
                 const requests = result.rows.map(row => {
@@ -457,7 +462,7 @@ const server = http.createServer((req, res) => {
                         if (err) {
                             console.error('Postgres insert error:', err);
                             res.writeHead(500, { 'Content-Type': 'application/json' });
-                            res.end(JSON.stringify({ error: 'Database error saving permohonan' }));
+                            res.end(JSON.stringify({ error: `Database Error: ${err.message}` }));
                             return;
                         }
                         const insertedRow = result.rows[0];
@@ -472,6 +477,10 @@ const server = http.createServer((req, res) => {
                         res.writeHead(201, { 'Content-Type': 'application/json' });
                         res.end(JSON.stringify(formattedResponse));
                     });
+                } else if (process.env.VERCEL) {
+                    res.writeHead(500, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: 'Koneksi Database Supabase belum aktif atau URL database belum terbaca di Vercel. Pastikan skema SQL di Supabase sudah dijalankan.' }));
+                    return;
                 } else {
                     const newItem = {
                         id: Math.random().toString(36).substring(2, 9) + '-' + Math.random().toString(36).substring(2, 9),
