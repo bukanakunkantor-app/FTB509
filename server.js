@@ -175,6 +175,10 @@ const generateDocx = async (item, status, callback) => {
 
             for (const filename of xmlFiles) {
                 let xmlText = await zip.files[filename].async('string');
+                
+                // Change all text colors (including red placeholders) to black (000000)
+                xmlText = xmlText.replace(/<w:color\s+[^>]*?\/>/gi, '<w:color w:val="000000"/>');
+
                 for (const [key, val] of Object.entries(replacements)) {
                     const xmlSafeVal = String(val || '')
                         .replace(/&/g, '&amp;')
