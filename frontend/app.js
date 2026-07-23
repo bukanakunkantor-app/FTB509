@@ -494,7 +494,7 @@ function App() {
     // Handle Admin Login
     const handleAdminLogin = (e) => {
         e.preventDefault();
-        if (adminPassword === 'lantai2') {
+        if (adminPassword === 'JuliIPK1,7') {
             setIsAdminAuthenticated(true);
             setAdminPassword('');
             setAdminError('');
