@@ -2,6 +2,8 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { execFile } = require('child_process');
+const { encryptRecord, decryptRecord, encryptField, decryptField } = require('./lib/cryptoUtils');
+
 
 let pool = null;
 const pgUrl = process.env.DATABASE_URL || 
@@ -313,7 +315,8 @@ const server = http.createServer((req, res) => {
                     res.end(JSON.stringify({ error: `Database Error: ${err.message}` }));
                     return;
                 }
-                const requests = result.rows.map(row => {
+                const requests = result.rows.map(rawRow => {
+                    const row = decryptRecord(rawRow);
                     const formatDate = (dateVal) => {
                         if (!dateVal) return '';
                         const d = new Date(dateVal);
@@ -334,8 +337,10 @@ const server = http.createServer((req, res) => {
                 res.end(JSON.stringify(requests));
             });
         } else {
+            const rawData = readData();
+            const decryptedData = rawData.map(item => decryptRecord(item));
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(readData()));
+            res.end(JSON.stringify(decryptedData));
         }
         return;
     }
@@ -451,6 +456,8 @@ const server = http.createServer((req, res) => {
                     return;
                 }
 
+                const encItem = encryptRecord(item);
+
                 if (pool) {
                     const query = `
                         INSERT INTO permohonan_ftb (
@@ -461,8 +468,8 @@ const server = http.createServer((req, res) => {
                         RETURNING *
                     `;
                     const values = [
-                        item.nama_pegawai, item.nip, item.jabatan, item.unit_kerja_asal, item.nomor_whatsapp,
-                        item.nomor_whatsapp_kepegawaian, item.nomor_nota_dinas, item.tanggal_nota_dinas,
+                        encItem.nama_pegawai, encItem.nip, encItem.jabatan, encItem.unit_kerja_asal, encItem.nomor_whatsapp,
+                        encItem.nomor_whatsapp_kepegawaian, encItem.nomor_nota_dinas, item.tanggal_nota_dinas,
                         item.tanggal_mulai, item.tanggal_selesai, isNaN(diffDays) ? 0 : diffDays, 'Menunggu'
                     ];
 
@@ -473,7 +480,7 @@ const server = http.createServer((req, res) => {
                             res.end(JSON.stringify({ error: `Database Error: ${err.message}` }));
                             return;
                         }
-                        const insertedRow = result.rows[0];
+                        const insertedRow = decryptRecord(result.rows[0]);
                         const formatDate = (dVal) => dVal ? new Date(dVal).toISOString().split('T')[0] : '';
                         const formattedResponse = {
                             ...insertedRow,
@@ -490,15 +497,15 @@ const server = http.createServer((req, res) => {
                     res.end(JSON.stringify({ error: 'Koneksi Database Supabase belum aktif atau URL database belum terbaca di Vercel. Pastikan skema SQL di Supabase sudah dijalankan.' }));
                     return;
                 } else {
-                    const newItem = {
+                    const newItemToStore = {
                         id: Math.random().toString(36).substring(2, 9) + '-' + Math.random().toString(36).substring(2, 9),
-                        nama_pegawai: item.nama_pegawai,
-                        nip: item.nip,
-                        jabatan: item.jabatan,
-                        unit_kerja_asal: item.unit_kerja_asal,
-                        nomor_whatsapp: item.nomor_whatsapp,
-                        nomor_whatsapp_kepegawaian: item.nomor_whatsapp_kepegawaian,
-                        nomor_nota_dinas: item.nomor_nota_dinas,
+                        nama_pegawai: encItem.nama_pegawai,
+                        nip: encItem.nip,
+                        jabatan: encItem.jabatan,
+                        unit_kerja_asal: encItem.unit_kerja_asal,
+                        nomor_whatsapp: encItem.nomor_whatsapp,
+                        nomor_whatsapp_kepegawaian: encItem.nomor_whatsapp_kepegawaian,
+                        nomor_nota_dinas: encItem.nomor_nota_dinas,
                         tanggal_nota_dinas: item.tanggal_nota_dinas,
                         tanggal_mulai: item.tanggal_mulai,
                         tanggal_selesai: item.tanggal_selesai,
@@ -508,11 +515,11 @@ const server = http.createServer((req, res) => {
                     };
 
                     const currentData = readData();
-                    currentData.push(newItem);
+                    currentData.push(newItemToStore);
                     writeData(currentData);
 
                     res.writeHead(201, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify(newItem));
+                    res.end(JSON.stringify(decryptRecord(newItemToStore)));
                 }
         });
         return;
@@ -545,27 +552,28 @@ const server = http.createServer((req, res) => {
                             res.end(JSON.stringify({ error: 'Request not found' }));
                             return;
                         }
-                        const item = selectRes.rows[0];
+                        const item = decryptRecord(selectRes.rows[0]);
                         const formatDate = (dVal) => dVal ? new Date(dVal).toISOString().split('T')[0] : '';
                         item.tanggal_nota_dinas = formatDate(item.tanggal_nota_dinas);
                         item.tanggal_mulai = formatDate(item.tanggal_mulai);
                         item.tanggal_selesai = formatDate(item.tanggal_selesai);
 
-                        const updateRecord = (alasanTolak, downloadUrl) => {
+                        const updateRecord = (alasanTolakPlain, downloadUrl) => {
                             const updateQuery = `
                                 UPDATE permohonan_ftb 
                                 SET status = $1, alasan_tolak = $2, download_url = $3 
                                 WHERE id = $4 
                                 RETURNING *
                             `;
-                            pool.query(updateQuery, [status, alasanTolak, downloadUrl, id], (updateErr, updateRes) => {
+                            const alasanTolakEncrypted = alasanTolakPlain ? encryptField(alasanTolakPlain) : null;
+                            pool.query(updateQuery, [status, alasanTolakEncrypted, downloadUrl, id], (updateErr, updateRes) => {
                                 if (updateErr) {
                                     console.error('Postgres update status error:', updateErr);
                                     res.writeHead(500, { 'Content-Type': 'application/json' });
                                     res.end(JSON.stringify({ error: 'Database error updating status' }));
                                     return;
                                 }
-                                const updatedRow = updateRes.rows[0];
+                                const updatedRow = decryptRecord(updateRes.rows[0]);
                                 const formattedResponse = {
                                     ...updatedRow,
                                     tanggal_nota_dinas: formatDate(updatedRow.tanggal_nota_dinas),
@@ -608,11 +616,15 @@ const server = http.createServer((req, res) => {
                         return;
                     }
 
+                    const itemDecrypted = decryptRecord(currentData[index]);
+
                     currentData[index].status = status;
                     if (status === 'Ditolak') {
-                        currentData[index].alasan_tolak = payload.alasan_tolak || '';
+                        currentData[index].alasan_tolak = encryptField(payload.alasan_tolak || '');
+                        itemDecrypted.alasan_tolak = payload.alasan_tolak || '';
                     } else {
                         currentData[index].alasan_tolak = undefined;
+                        itemDecrypted.alasan_tolak = undefined;
                     }
 
                     if (status === 'Menunggu') {
@@ -629,16 +641,16 @@ const server = http.createServer((req, res) => {
                         }
                         writeData(currentData);
                         res.writeHead(200, { 'Content-Type': 'application/json' });
-                        res.end(JSON.stringify(currentData[index]));
+                        res.end(JSON.stringify(decryptRecord(currentData[index])));
                     } else {
-                        generateDocx(currentData[index], status, (err, downloadUrl) => {
+                        generateDocx(itemDecrypted, status, (err, downloadUrl) => {
                             if (!err && downloadUrl) {
                                 currentData[index].download_url = downloadUrl;
                             }
                             writeData(currentData);
 
                             res.writeHead(200, { 'Content-Type': 'application/json' });
-                            res.end(JSON.stringify(currentData[index]));
+                            res.end(JSON.stringify(decryptRecord(currentData[index])));
                         });
                     }
                 }
