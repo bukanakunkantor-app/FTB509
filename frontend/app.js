@@ -553,6 +553,10 @@ function App() {
         for (let day = 1; day <= daysInMonth; day++) {
             const dateObj = new Date(year, month, day);
             const dateString = formatDateStr(dateObj);
+            const dayOfWeek = dateObj.getDay();
+            const isWeekend = (dayOfWeek === 0 || dayOfWeek === 6);
+            const holidayName = holidayNames2026[dateString] || null;
+            const isHoliday = !!holidayName;
 
             // Check if this date has any FTB permohonan (regardless of status)
             const activeFTB = requests.filter(item => {
@@ -565,6 +569,9 @@ function App() {
                 dayNumber: day,
                 dateStr: dateString,
                 dateObj: dateObj,
+                isWeekend,
+                isHoliday,
+                holidayName,
                 hasRequests: activeFTB.length > 0,
                 activeFTB: activeFTB
             });
@@ -974,22 +981,30 @@ function App() {
                                         }
 
                                         const isToday = formatDateStr(new Date()) === cell.dateStr;
+                                        const isNonWorking = cell.isWeekend || cell.isHoliday;
+
+                                        let cellClass = "calendar-cell";
+                                        if (isToday) cellClass += " today";
+                                        if (cell.isHoliday) cellClass += " holiday";
+                                        else if (cell.isWeekend) cellClass += " weekend";
 
                                         return (
                                             <div
                                                 key={cell.dateStr}
-                                                className={`calendar-cell ${isToday ? 'today' : ''}`}
+                                                className={cellClass}
+                                                title={cell.holidayName || (cell.isWeekend ? 'Akhir Pekan' : '')}
                                                 onClick={() => {
-                                                    if (cell.activeFTB && cell.activeFTB.length > 0) {
+                                                    if (!isNonWorking && cell.activeFTB && cell.activeFTB.length > 0) {
                                                         setSelectedDate(cell);
+                                                    } else if (isNonWorking) {
+                                                        showToast('info', cell.holidayName ? `Tanggal ${formatDisplayDate(cell.dateStr)} adalah Hari Libur (${cell.holidayName}).` : `Tanggal ${formatDisplayDate(cell.dateStr)} adalah Akhir Pekan.`);
                                                     } else {
-                                                        // Optional alert if empty date clicked
                                                         showToast('info', `Tidak ada pengajuan FTB pada tanggal ${formatDisplayDate(cell.dateStr)}.`);
                                                     }
                                                 }}
                                             >
                                                 <span className="day-number">{cell.dayNumber}</span>
-                                                {cell.activeFTB && cell.activeFTB.length > 0 && (
+                                                {!isNonWorking && cell.activeFTB && cell.activeFTB.length > 0 && (
                                                     <div className="dots-container">
                                                         {cell.activeFTB.map((item, idx) => {
                                                             let dotClass = "dot-indicator";
@@ -1029,6 +1044,10 @@ function App() {
                                 <div className="legend-item">
                                     <span className="legend-today-box"></span>
                                     <span>Hari Ini</span>
+                                </div>
+                                <div className="legend-item">
+                                    <span className="legend-nonworking-box"></span>
+                                    <span>Non Hari Kerja / Libur</span>
                                 </div>
                             </div>
                         </div>
