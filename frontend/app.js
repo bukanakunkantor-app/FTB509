@@ -1318,21 +1318,7 @@ function App() {
                                     >
                                         <div className="emp-details">
                                             <h4>{item.nama_pegawai}</h4>
-                                            <p>{item.jabatan} • NIP {item.nip} • {item.unit_kerja_asal}</p>
-                                            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-                                                WA Aktif: {item.nomor_whatsapp} {item.nomor_whatsapp_kepegawaian && `• WA Kepegawaian: ${item.nomor_whatsapp_kepegawaian}`}
-                                            </p>
-                                            {item.nomor_nota_dinas && (
-                                                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>
-                                                    ND Permohonan: {item.nomor_nota_dinas} ({formatDisplayDate(item.tanggal_nota_dinas)})
-                                                </p>
-                                            )}
-                                            {item.status === 'Ditolak' && item.alasan_tolak && (
-                                                <p style={{ fontSize: '0.75rem', color: 'var(--danger)', marginTop: '0.1rem', fontStyle: 'italic' }}>
-                                                    Alasan Penolakan: {item.alasan_tolak}
-                                                </p>
-                                            )}
-                                            <p style={{ fontSize: '0.75rem', marginTop: '0.2rem', color: 'var(--primary)' }}>
+                                            <p style={{ fontSize: '0.8rem', marginTop: '0.25rem', color: 'var(--primary)', fontWeight: '500' }}>
                                                 Periode: {formatDisplayDate(item.tanggal_mulai)} s.d {formatDisplayDate(item.tanggal_selesai)} ({item.durasi} Hari)
                                             </p>
                                         </div>
