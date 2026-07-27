@@ -936,6 +936,190 @@ const server = http.createServer((req, res) => {
         return;
     }
 
+    // PUT /api/permohonan/:id - Edit permohonan fields
+    if (pathname.startsWith('/api/permohonan/') && !pathname.endsWith('/status') && req.method === 'PUT') {
+        const parts = pathname.split('/');
+        const id = parts[3];
+
+        getParsedBody(req, (err, payload) => {
+            if (err || !payload) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Invalid JSON payload' }));
+                return;
+            }
+
+            const { nama_pegawai, nip, jabatan, unit_kerja_asal, nomor_whatsapp, nomor_whatsapp_kepegawaian, nomor_nota_dinas, tanggal_nota_dinas, tanggal_mulai, tanggal_selesai } = payload;
+
+            const parseLocalDate = (dateStr) => {
+                if (!dateStr) return new Date();
+                const [year, month, day] = dateStr.split('-').map(Number);
+                return new Date(year, month - 1, day);
+            };
+
+            if (pool) {
+                pool.query('SELECT * FROM permohonan_ftb WHERE id = $1', [id], (selectErr, selectRes) => {
+                    if (selectErr || selectRes.rows.length === 0) {
+                        res.writeHead(404, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({ error: 'Request not found' }));
+                        return;
+                    }
+
+                    const originalItem = decryptRecord(selectRes.rows[0]);
+                    const mergedItem = {
+                        ...originalItem,
+                        nama_pegawai: nama_pegawai !== undefined ? nama_pegawai : originalItem.nama_pegawai,
+                        nip: nip !== undefined ? nip : originalItem.nip,
+                        jabatan: jabatan !== undefined ? jabatan : originalItem.jabatan,
+                        unit_kerja_asal: unit_kerja_asal !== undefined ? unit_kerja_asal : originalItem.unit_kerja_asal,
+                        nomor_whatsapp: nomor_whatsapp !== undefined ? nomor_whatsapp : originalItem.nomor_whatsapp,
+                        nomor_whatsapp_kepegawaian: nomor_whatsapp_kepegawaian !== undefined ? nomor_whatsapp_kepegawaian : originalItem.nomor_whatsapp_kepegawaian,
+                        nomor_nota_dinas: nomor_nota_dinas !== undefined ? nomor_nota_dinas : originalItem.nomor_nota_dinas,
+                        tanggal_nota_dinas: tanggal_nota_dinas !== undefined ? tanggal_nota_dinas : originalItem.tanggal_nota_dinas,
+                        tanggal_mulai: tanggal_mulai !== undefined ? tanggal_mulai : originalItem.tanggal_mulai,
+                        tanggal_selesai: tanggal_selesai !== undefined ? tanggal_selesai : originalItem.tanggal_selesai
+                    };
+
+                    const start = parseLocalDate(mergedItem.tanggal_mulai);
+                    const end = parseLocalDate(mergedItem.tanggal_selesai);
+                    let diffDays = 0;
+                    if (start <= end) {
+                        let current = new Date(start);
+                        const holidays2026 = [
+                            "2026-01-01", "2026-01-16", "2026-02-16", "2026-02-17",
+                            "2026-03-18", "2026-03-19", "2026-03-20", "2026-03-21",
+                            "2026-03-22", "2026-03-23", "2026-03-24", "2026-04-03",
+                            "2026-04-05", "2026-05-01", "2026-05-14", "2026-05-15",
+                            "2026-05-27", "2026-05-28", "2026-05-31", "2026-06-01",
+                            "2026-06-16", "2026-08-17", "2026-08-25", "2026-12-24",
+                            "2026-12-25"
+                        ];
+                        while (current <= end) {
+                            const dayOfWeek = current.getDay();
+                            const formattedDate = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
+                            if (dayOfWeek !== 0 && dayOfWeek !== 6 && !holidays2026.includes(formattedDate)) {
+                                diffDays++;
+                            }
+                            current.setDate(current.getDate() + 1);
+                        }
+                    }
+                    mergedItem.durasi = diffDays;
+
+                    const saveToDatabase = (fileDataB64) => {
+                        const encrypted = encryptRecord(mergedItem);
+                        const query = `
+                            UPDATE permohonan_ftb
+                            SET nama_pegawai = $1, nip = $2, jabatan = $3, unit_kerja_asal = $4,
+                                nomor_whatsapp = $5, nomor_whatsapp_kepegawaian = $6, nomor_nota_dinas = $7,
+                                tanggal_nota_dinas = $8, tanggal_mulai = $9, tanggal_selesai = $10,
+                                durasi = $11, file_data = $12
+                            WHERE id = $13
+                            RETURNING *
+                        `;
+                        const values = [
+                            encrypted.nama_pegawai, encrypted.nip, encrypted.jabatan, encrypted.unit_kerja_asal,
+                            encrypted.nomor_whatsapp, encrypted.nomor_whatsapp_kepegawaian, encrypted.nomor_nota_dinas,
+                            mergedItem.tanggal_nota_dinas, mergedItem.tanggal_mulai, mergedItem.tanggal_selesai,
+                            mergedItem.durasi, fileDataB64, id
+                        ];
+
+                        pool.query(query, values, (err, updateRes) => {
+                            if (err) {
+                                console.error('Postgres edit error:', err);
+                                res.writeHead(500, { 'Content-Type': 'application/json' });
+                                res.end(JSON.stringify({ error: `Database Error: ${err.message}` }));
+                                return;
+                            }
+                            const updatedRow = decryptRecord(updateRes.rows[0]);
+                            const formatDateStr = (dVal) => dVal ? new Date(dVal).toISOString().split('T')[0] : '';
+                            res.writeHead(200, { 'Content-Type': 'application/json' });
+                            res.end(JSON.stringify({
+                                ...updatedRow,
+                                tanggal_nota_dinas: formatDateStr(updatedRow.tanggal_nota_dinas),
+                                tanggal_mulai: formatDateStr(updatedRow.tanggal_mulai),
+                                tanggal_selesai: formatDateStr(updatedRow.tanggal_selesai),
+                                created_at: updatedRow.created_at ? new Date(updatedRow.created_at).toISOString() : null
+                            }));
+                        });
+                    };
+
+                    if (mergedItem.status === 'Menunggu') {
+                        saveToDatabase(null);
+                    } else {
+                        generateDocxBuffer(mergedItem, mergedItem.status).then(buffer => {
+                            saveToDatabase(buffer.toString('base64'));
+                        }).catch(docxErr => {
+                            console.error('Docx generation error on edit:', docxErr);
+                            saveToDatabase(null);
+                        });
+                    }
+                });
+            } else {
+                const currentData = readData();
+                const idx = currentData.findIndex(item => item.id === id);
+                if (idx === -1) {
+                    res.writeHead(404, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: 'Request not found' }));
+                    return;
+                }
+
+                const originalItem = decryptRecord(currentData[idx]);
+                const mergedItem = {
+                    ...originalItem,
+                    nama_pegawai: nama_pegawai !== undefined ? nama_pegawai : originalItem.nama_pegawai,
+                    nip: nip !== undefined ? nip : originalItem.nip,
+                    jabatan: jabatan !== undefined ? jabatan : originalItem.jabatan,
+                    unit_kerja_asal: unit_kerja_asal !== undefined ? unit_kerja_asal : originalItem.unit_kerja_asal,
+                    nomor_whatsapp: nomor_whatsapp !== undefined ? nomor_whatsapp : originalItem.nomor_whatsapp,
+                    nomor_whatsapp_kepegawaian: nomor_whatsapp_kepegawaian !== undefined ? nomor_whatsapp_kepegawaian : originalItem.nomor_whatsapp_kepegawaian,
+                    nomor_nota_dinas: nomor_nota_dinas !== undefined ? nomor_nota_dinas : originalItem.nomor_nota_dinas,
+                    tanggal_nota_dinas: tanggal_nota_dinas !== undefined ? tanggal_nota_dinas : originalItem.tanggal_nota_dinas,
+                    tanggal_mulai: tanggal_mulai !== undefined ? tanggal_mulai : originalItem.tanggal_mulai,
+                    tanggal_selesai: tanggal_selesai !== undefined ? tanggal_selesai : originalItem.tanggal_selesai
+                };
+
+                const start = parseLocalDate(mergedItem.tanggal_mulai);
+                const end = parseLocalDate(mergedItem.tanggal_selesai);
+                let diffDays = 0;
+                if (start <= end) {
+                    let current = new Date(start);
+                    while (current <= end) {
+                        const dayOfWeek = current.getDay();
+                        if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+                            diffDays++;
+                        }
+                        current.setDate(current.getDate() + 1);
+                    }
+                }
+                mergedItem.durasi = diffDays;
+
+                const saveToLocal = (fileDataB64) => {
+                    const encrypted = encryptRecord(mergedItem);
+                    currentData[idx] = {
+                        ...currentData[idx],
+                        ...encrypted,
+                        durasi: mergedItem.durasi,
+                        file_data: fileDataB64
+                    };
+                    writeData(currentData);
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify(decryptRecord(currentData[idx])));
+                };
+
+                if (mergedItem.status === 'Menunggu') {
+                    saveToLocal(null);
+                } else {
+                    generateDocxBuffer(mergedItem, mergedItem.status).then(buffer => {
+                        saveToLocal(buffer.toString('base64'));
+                    }).catch(docxErr => {
+                        console.error('Local docx error on edit:', docxErr);
+                        saveToLocal(null);
+                    });
+                }
+            }
+        });
+        return;
+    }
+
     // Serve generated documents dynamically on-the-fly
     if (pathname.startsWith('/generated/')) {
         const match = pathname.match(/^\/generated\/ND_(Disetujui|Ditolak)_([a-zA-Z0-9_-]+)\.docx$/);
