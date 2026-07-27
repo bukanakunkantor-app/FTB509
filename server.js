@@ -130,22 +130,13 @@ try {
     console.warn('JSZip module not found. Run npm install jszip');
 }
 
-// Helper to generate docx using JSZip (Cloud-native / Vercel ready)
-const generateDocx = async (item, status, callback) => {
+// Helper to generate docx using JSZip (Cloud-native / Vercel ready) in-memory buffer
+const generateDocxBuffer = async (item, status) => {
     if (status !== 'Disetujui' && status !== 'Ditolak') {
-        return callback(null);
+        throw new Error('Invalid status for document generation');
     }
     const templateFilename = status === 'Disetujui' ? 'Setuju.docx' : 'Tolak.docx';
     const templatePath = path.join(__dirname, templateFilename);
-
-    const isVercel = !!process.env.VERCEL;
-    const genDir = isVercel ? path.join('/tmp', 'generated') : path.join(__dirname, 'frontend', 'generated');
-    if (!fs.existsSync(genDir)) {
-        fs.mkdirSync(genDir, { recursive: true });
-    }
-
-    const outputFilename = `ND_${status}_${item.id}.docx`;
-    const outputPath = path.join(genDir, outputFilename);
 
     // Format unit_kerja_asal to expand abbreviations (KPP -> Kantor Pelayanan Pajak) preserving other parts like Pratama
     let formattedUnitKerja = item.unit_kerja_asal || '';
@@ -167,57 +158,59 @@ const generateDocx = async (item, status, callback) => {
     }
 
     if (JSZip && fs.existsSync(templatePath)) {
-        try {
-            const data = fs.readFileSync(templatePath);
-            const zip = await JSZip.loadAsync(data);
+        const data = fs.readFileSync(templatePath);
+        const zip = await JSZip.loadAsync(data);
 
-            const xmlFiles = Object.keys(zip.files).filter(filename => 
-                filename === 'word/document.xml' || filename.startsWith('word/header') || filename.startsWith('word/footer')
-            );
+        const xmlFiles = Object.keys(zip.files).filter(filename => 
+            filename === 'word/document.xml' || filename.startsWith('word/header') || filename.startsWith('word/footer')
+        );
 
-            for (const filename of xmlFiles) {
-                let xmlText = await zip.files[filename].async('string');
+        for (const filename of xmlFiles) {
+            let xmlText = await zip.files[filename].async('string');
+            
+            // Change only red font colors (placeholder text #FF0000) to black (000000), leaving gray (#BFBFBF) for "Ditandatangani secara elektronik"
+            xmlText = xmlText.replace(/<w:color\s+[^>]*?w:val="(?:FF0000|C00000|ED1C24|E00000|D00000|red)"[^>]*?\/>/gi, '<w:color w:val="000000"/>');
+            xmlText = xmlText.replace(/<w:color\s+[^>]*?w:val='(?:FF0000|C00000|ED1C24|E00000|D00000|red)'[^>]*?\/>/gi, "<w:color w:val='000000'/>");
+
+            for (const [key, val] of Object.entries(replacements)) {
+                const xmlSafeVal = String(val || '')
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&apos;');
                 
-                // Change only red font colors (placeholder text #FF0000) to black (000000), leaving gray (#BFBFBF) for "Ditandatangani secara elektronik"
-                xmlText = xmlText.replace(/<w:color\s+[^>]*?w:val="(?:FF0000|C00000|ED1C24|E00000|D00000|red)"[^>]*?\/>/gi, '<w:color w:val="000000"/>');
-                xmlText = xmlText.replace(/<w:color\s+[^>]*?w:val='(?:FF0000|C00000|ED1C24|E00000|D00000|red)'[^>]*?\/>/gi, "<w:color w:val='000000'/>");
-
-                for (const [key, val] of Object.entries(replacements)) {
-                    const xmlSafeVal = String(val || '')
-                        .replace(/&/g, '&amp;')
-                        .replace(/</g, '&lt;')
-                        .replace(/>/g, '&gt;')
-                        .replace(/"/g, '&quot;')
-                        .replace(/'/g, '&apos;');
-                    
-                    xmlText = xmlText.split(key).join(xmlSafeVal);
-                }
-                zip.file(filename, xmlText);
+                xmlText = xmlText.split(key).join(xmlSafeVal);
             }
-
-            const buffer = await zip.generateAsync({ type: 'nodebuffer' });
-            fs.writeFileSync(outputPath, buffer);
-            console.log('Docx generated using JSZip:', outputFilename);
-            return callback(null, `/generated/${outputFilename}`);
-        } catch (err) {
-            console.error('Error generating docx with JSZip:', err);
+            zip.file(filename, xmlText);
         }
+
+        const buffer = await zip.generateAsync({ type: 'nodebuffer' });
+        return buffer;
     }
 
     // Fallback to PHP if JSZip is not installed
     const phpPath = 'C:\\xampp\\php\\php.exe';
     const scriptPath = path.join(__dirname, 'generate_docx.php');
     if (fs.existsSync(phpPath) && fs.existsSync(scriptPath)) {
-        execFile(phpPath, [scriptPath, templatePath, outputPath, JSON.stringify(replacements)], (error, stdout, stderr) => {
-            if (error) {
-                console.error('Error generating docx via PHP:', error, stderr);
-                return callback(error);
-            }
-            console.log('Docx generated output:', stdout);
-            callback(null, `/generated/${outputFilename}`);
+        return new Promise((resolve, reject) => {
+            const tempOutputPath = path.join(__dirname, `temp_${status}_${item.id}.docx`);
+            execFile(phpPath, [scriptPath, templatePath, tempOutputPath, JSON.stringify(replacements)], (error, stdout, stderr) => {
+                if (error) {
+                    console.error('Error generating docx via PHP:', error, stderr);
+                    return reject(error);
+                }
+                try {
+                    const buffer = fs.readFileSync(tempOutputPath);
+                    fs.unlinkSync(tempOutputPath);
+                    resolve(buffer);
+                } catch (readErr) {
+                    reject(readErr);
+                }
+            });
         });
     } else {
-        callback(new Error('No docx generator available'));
+        throw new Error('No docx generator available (JSZip or PHP not found)');
     }
 };
 
@@ -587,24 +580,13 @@ const server = http.createServer((req, res) => {
                         };
 
                         if (status === 'Menunggu') {
-                            if (item.download_url) {
-                                const filePathToDelete = path.join(__dirname, 'frontend', item.download_url);
-                                if (fs.existsSync(filePathToDelete)) {
-                                    try { fs.unlinkSync(filePathToDelete); } catch (e) {}
-                                }
-                            }
                             updateRecord(null, null);
                         } else {
-                            const testItemForDocx = {
-                                ...item,
-                                alasan_tolak: status === 'Ditolak' ? (payload.alasan_tolak || '') : ''
-                            };
-                            generateDocx(testItemForDocx, status, (docxErr, downloadUrl) => {
-                                updateRecord(
-                                    status === 'Ditolak' ? (payload.alasan_tolak || '') : null,
-                                    docxErr ? null : downloadUrl
-                                );
-                            });
+                            const downloadUrl = `/generated/ND_${status}_${id}.docx`;
+                            updateRecord(
+                                status === 'Ditolak' ? (payload.alasan_tolak || '') : null,
+                                downloadUrl
+                            );
                         }
                     });
                 } else {
@@ -628,33 +610,75 @@ const server = http.createServer((req, res) => {
                     }
 
                     if (status === 'Menunggu') {
-                        if (currentData[index].download_url) {
-                            const filePathToDelete = path.join(__dirname, 'frontend', currentData[index].download_url);
-                            if (fs.existsSync(filePathToDelete)) {
-                                try {
-                                    fs.unlinkSync(filePathToDelete);
-                                } catch (err) {
-                                    console.error('Failed to delete generated file:', err);
-                                }
-                            }
-                            currentData[index].download_url = undefined;
-                        }
+                        currentData[index].download_url = undefined;
                         writeData(currentData);
                         res.writeHead(200, { 'Content-Type': 'application/json' });
                         res.end(JSON.stringify(decryptRecord(currentData[index])));
                     } else {
-                        generateDocx(itemDecrypted, status, (err, downloadUrl) => {
-                            if (!err && downloadUrl) {
-                                currentData[index].download_url = downloadUrl;
-                            }
-                            writeData(currentData);
-
-                            res.writeHead(200, { 'Content-Type': 'application/json' });
-                            res.end(JSON.stringify(decryptRecord(currentData[index])));
-                        });
+                        currentData[index].download_url = `/generated/ND_${status}_${id}.docx`;
+                        writeData(currentData);
+                        res.writeHead(200, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify(decryptRecord(currentData[index])));
                     }
                 }
         });
+        return;
+    }
+
+    // Serve generated documents dynamically on-the-fly
+    if (pathname.startsWith('/generated/')) {
+        const match = pathname.match(/^\/generated\/ND_(Disetujui|Ditolak)_([a-zA-Z0-9_-]+)\.docx$/);
+        if (!match) {
+            res.writeHead(404, { 'Content-Type': 'text/html' });
+            res.end('<h1>404 Not Found (Invalid URL Pattern)</h1>');
+            return;
+        }
+
+        const docStatus = match[1];
+        const recordId = match[2];
+
+        const handleDataFound = async (item) => {
+            try {
+                // Ensure alasan_tolak is present if Ditolak
+                const itemForDocx = {
+                    ...item,
+                    alasan_tolak: docStatus === 'Ditolak' ? (item.alasan_tolak || '') : ''
+                };
+                const buffer = await generateDocxBuffer(itemForDocx, docStatus);
+                res.writeHead(200, {
+                    'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                    'Content-Disposition': `attachment; filename=ND_${docStatus}_${recordId}.docx`,
+                    'Content-Length': buffer.length
+                });
+                res.end(buffer);
+            } catch (genErr) {
+                console.error('Error generating docx on-the-fly:', genErr);
+                res.writeHead(500, { 'Content-Type': 'text/html' });
+                res.end('<h1>500 Internal Server Error Generating Document</h1>');
+            }
+        };
+
+        if (pool) {
+            pool.query('SELECT * FROM permohonan_ftb WHERE id = $1', [recordId], (dbErr, dbRes) => {
+                if (dbErr || dbRes.rows.length === 0) {
+                    res.writeHead(404, { 'Content-Type': 'text/html' });
+                    res.end('<h1>404 Not Found (Document Record Not Found in Database)</h1>');
+                    return;
+                }
+                const item = decryptRecord(dbRes.rows[0]);
+                handleDataFound(item);
+            });
+        } else {
+            const currentData = readData();
+            const rawItem = currentData.find(x => x.id === recordId);
+            if (!rawItem) {
+                res.writeHead(404, { 'Content-Type': 'text/html' });
+                res.end('<h1>404 Not Found (Document Record Not Found in Local File)</h1>');
+                return;
+            }
+            const item = decryptRecord(rawItem);
+            handleDataFound(item);
+        }
         return;
     }
 
@@ -662,8 +686,6 @@ const server = http.createServer((req, res) => {
     let filePath = '';
     if (pathname === '/' || pathname === '/index.html') {
         filePath = path.join(__dirname, 'frontend', 'index.html');
-    } else if (pathname.startsWith('/generated/') && process.env.VERCEL) {
-        filePath = path.join('/tmp', pathname);
     } else {
         filePath = path.join(__dirname, 'frontend', pathname);
     }
