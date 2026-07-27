@@ -210,11 +210,26 @@ const generateDocxBuffer = async (items, status) => {
             xmlText = xmlText.replace(/<w:color\s+[^>]*?w:val='(?:FF0000|C00000|ED1C24|E00000|D00000|red)'[^>]*?\/>/gi, "<w:color w:val='000000'/>");
 
             if (filename === 'word/document.xml' && itemList.length > 1) {
-                // Table Row Duplication logic for bulk list
-                const table2RowRegex = /<w:tr[\s\S]*?nama_pegawai[\s\S]*?nip[\s\S]*?jabatan[\s\S]*?unit_kerja_asal[\s\S]*?<\/w:tr>/;
-                const rowMatch = xmlText.match(table2RowRegex);
-                if (rowMatch) {
-                    const templateRowXml = rowMatch[0];
+                // Table Row Duplication logic for bulk list using precise XML splitting
+                const parts = xmlText.split('<w:tr');
+                let templateRowXml = null;
+                
+                for (let i = 1; i < parts.length; i++) {
+                    const rowPart = parts[i];
+                    const closingIdx = rowPart.indexOf('</w:tr>');
+                    if (closingIdx !== -1) {
+                        const rowXmlContent = rowPart.substring(0, closingIdx + 7);
+                        if (rowXmlContent.includes('nama_pegawai') && 
+                            rowXmlContent.includes('nip') && 
+                            rowXmlContent.includes('jabatan') && 
+                            rowXmlContent.includes('unit_kerja_asal')) {
+                            templateRowXml = '<w:tr' + rowXmlContent;
+                            break;
+                        }
+                    }
+                }
+
+                if (templateRowXml) {
                     const generatedRows = [];
                     
                     for (let i = 0; i < itemList.length; i++) {
