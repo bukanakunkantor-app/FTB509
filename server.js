@@ -666,7 +666,7 @@ const server = http.createServer((req, res) => {
                         
                         const updateQuery = status === 'Menunggu'
                             ? `UPDATE permohonan_ftb SET status = $1, alasan_tolak = $2, download_url = NULL, file_data = NULL WHERE id = ANY($3::uuid[]) RETURNING *`
-                            : `UPDATE permohonan_ftb SET status = $1, alasan_tolak = $2, download_url = '/generated/ND_' || $1 || '_' || id::text || '.docx', file_data = $3 WHERE id = ANY($4::uuid[]) RETURNING *`;
+                            : `UPDATE permohonan_ftb SET status = $1, alasan_tolak = $2, download_url = '/generated/ND_${status}_' || id::text || '.docx', file_data = $3 WHERE id = ANY($4::uuid[]) RETURNING *`;
                         
                         const queryParams = status === 'Menunggu'
                             ? [status, alasanTolakEncrypted, ids]
