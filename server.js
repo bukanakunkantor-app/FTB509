@@ -640,9 +640,15 @@ const server = http.createServer((req, res) => {
             if (pool) {
                 // Fetch all rows
                 pool.query('SELECT * FROM permohonan_ftb WHERE id = ANY($1::uuid[])', [ids], (selectErr, selectRes) => {
-                    if (selectErr || selectRes.rows.length === 0) {
+                    if (selectErr) {
+                        console.error('Postgres bulk select error:', selectErr);
+                        res.writeHead(500, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({ error: `Database error selecting requests: ${selectErr.message}` }));
+                        return;
+                    }
+                    if (selectRes.rows.length === 0) {
                         res.writeHead(404, { 'Content-Type': 'application/json' });
-                        res.end(JSON.stringify({ error: 'No matching requests found' }));
+                        res.end(JSON.stringify({ error: 'No matching requests found in the database' }));
                         return;
                     }
                     
@@ -670,7 +676,7 @@ const server = http.createServer((req, res) => {
                             if (updateErr) {
                                 console.error('Postgres bulk update status error:', updateErr);
                                 res.writeHead(500, { 'Content-Type': 'application/json' });
-                                res.end(JSON.stringify({ error: 'Database error updating status' }));
+                                res.end(JSON.stringify({ error: `Database error updating status: ${updateErr.message}` }));
                                 return;
                             }
                             const updatedRows = updateRes.rows.map(row => {
