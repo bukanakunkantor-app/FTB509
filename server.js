@@ -303,7 +303,7 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    const reqUrl = req.headers['x-forwarded-url'] || req.headers['x-matched-path'] || req.url;
+    const reqUrl = req.headers['x-vercel-forwarded-path'] || req.headers['x-original-url'] || req.headers['x-forwarded-url'] || req.headers['x-matched-path'] || req.url;
     const parsedUrl = new URL(reqUrl, `http://${req.headers.host || 'localhost'}`);
     const pathname = parsedUrl.pathname;
 
