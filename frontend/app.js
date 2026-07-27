@@ -1296,7 +1296,17 @@ function App() {
                                                                         style={{ marginTop: '8px', display: 'inline-flex', padding: '4px 8px', fontSize: '0.75rem', textDecoration: 'none', gap: '4px', alignItems: 'center' }}
                                                                     >
                                                                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" x2="12" y1="15" y2="3" /></svg>
-                                                                        Unduh ND
+                                                                        {(() => {
+                                                                            if (!item.nomor_nota_dinas || item.status === 'Menunggu') return 'Unduh ND';
+                                                                            const isMerged = requests.filter(r => 
+                                                                                r.status === item.status && 
+                                                                                r.nomor_nota_dinas === item.nomor_nota_dinas && 
+                                                                                r.unit_kerja_asal === item.unit_kerja_asal
+                                                                            ).length > 1;
+                                                                            return isMerged 
+                                                                                ? `Unduh ND Gabungan ${item.nomor_nota_dinas}` 
+                                                                                : 'Unduh ND';
+                                                                        })()}
                                                                     </a>
                                                                 )}
                                                             </td>
