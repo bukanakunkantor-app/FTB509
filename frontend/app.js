@@ -150,6 +150,37 @@ function App() {
     const [bulkRejectionModalOpen, setBulkRejectionModalOpen] = useState(false);
     const [bulkAlasanTolakInput, setBulkAlasanTolakInput] = useState('');
 
+    // Edit Modal state
+    const [editingItem, setEditingItem] = useState(null);
+    const [editFormInputs, setEditFormInputs] = useState(null);
+
+    const handleEditSubmit = async (e) => {
+        e.preventDefault();
+        if (!editingItem) return;
+
+        try {
+            const res = await fetch(`${API_BASE}/permohonan/${editingItem.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(editFormInputs)
+            });
+
+            if (res.ok) {
+                const updatedItem = await res.json();
+                showToast('success', 'Berhasil memperbarui data permohonan.');
+                setRequests(prev => prev.map(item => item.id === updatedItem.id ? updatedItem : item));
+                setEditingItem(null);
+                setEditFormInputs(null);
+            } else {
+                const errData = await res.json().catch(() => ({}));
+                showToast('error', `Gagal mengedit permohonan: ${errData.error || res.statusText}`);
+            }
+        } catch (err) {
+            showToast('error', 'Koneksi ke server gagal.');
+            console.error(err);
+        }
+    };
+
     const handleSelectRow = (id) => {
         setSelectedIds(prev => 
             prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
@@ -1312,38 +1343,62 @@ function App() {
                                                             </td>
                                                             <td>
                                                                 {item.status === 'Menunggu' ? (
-                                                                    <div className="action-buttons-cell">
-                                                                        <button
-                                                                            className="btn-action approve"
-                                                                            onClick={() => handleUpdateStatus(item.id, 'Disetujui')}
-                                                                        >
-                                                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="20 6 9 17 4 12" /></svg>
-                                                                            Setujui
-                                                                        </button>
-                                                                        <button
-                                                                            className="btn-action reject"
-                                                                            onClick={() => {
-                                                                                setRejectionModalItem(item);
-                                                                                setAlasanTolakInput('');
-                                                                            }}
-                                                                        >
-                                                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><line x1="18" x2="6" y1="6" y2="18" /><line x1="6" x2="18" y1="6" y2="18" /></svg>
-                                                                            Tolak
-                                                                        </button>
-                                                                    </div>
-                                                                ) : (
-                                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'flex-start' }}>
-                                                                        <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', fontStyle: 'italic' }}>Selesai ditelaah</span>
-                                                                        <button
-                                                                            className="btn-action reject"
-                                                                            onClick={() => handleUpdateStatus(item.id, 'Menunggu')}
-                                                                            style={{ padding: '4px 8px', fontSize: '0.75rem', display: 'inline-flex', gap: '4px', background: 'transparent', color: 'var(--text-muted)', border: '1px solid rgba(15,23,42,0.1)', boxShadow: 'none' }}
-                                                                        >
-                                                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></svg>
-                                                                            Batal Aksi
-                                                                        </button>
-                                                                    </div>
-                                                                )}
+                                                                     <div className="action-buttons-cell" style={{ display: 'flex', gap: '6px' }}>
+                                                                         <button
+                                                                             className="btn-action approve"
+                                                                             onClick={() => handleUpdateStatus(item.id, 'Disetujui')}
+                                                                         >
+                                                                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="20 6 9 17 4 12" /></svg>
+                                                                             Setujui
+                                                                         </button>
+                                                                         <button
+                                                                             className="btn-action reject"
+                                                                             onClick={() => {
+                                                                                 setRejectionModalItem(item);
+                                                                                 setAlasanTolakInput('');
+                                                                             }}
+                                                                         >
+                                                                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><line x1="18" x2="6" y1="6" y2="18" /><line x1="6" x2="18" y1="6" y2="18" /></svg>
+                                                                             Tolak
+                                                                         </button>
+                                                                         <button
+                                                                             className="btn-action"
+                                                                             onClick={() => {
+                                                                                 setEditingItem(item);
+                                                                                 setEditFormInputs({ ...item });
+                                                                             }}
+                                                                             style={{ background: '#f1f5f9', color: 'var(--text-dark)', border: '1px solid rgba(15,23,42,0.1)', display: 'inline-flex', gap: '4px', alignItems: 'center' }}
+                                                                         >
+                                                                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                                                                             Edit
+                                                                         </button>
+                                                                     </div>
+                                                                 ) : (
+                                                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'flex-start' }}>
+                                                                         <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', fontStyle: 'italic' }}>Selesai ditelaah</span>
+                                                                         <div style={{ display: 'flex', gap: '6px' }}>
+                                                                             <button
+                                                                                 className="btn-action reject"
+                                                                                 onClick={() => handleUpdateStatus(item.id, 'Menunggu')}
+                                                                                 style={{ padding: '4px 8px', fontSize: '0.75rem', display: 'inline-flex', gap: '4px', background: 'transparent', color: 'var(--text-muted)', border: '1px solid rgba(15,23,42,0.1)', boxShadow: 'none' }}
+                                                                             >
+                                                                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></svg>
+                                                                                 Batal
+                                                                             </button>
+                                                                             <button
+                                                                                 className="btn-action"
+                                                                                 onClick={() => {
+                                                                                     setEditingItem(item);
+                                                                                     setEditFormInputs({ ...item });
+                                                                                 }}
+                                                                                 style={{ padding: '4px 8px', fontSize: '0.75rem', display: 'inline-flex', gap: '4px', background: '#f1f5f9', color: 'var(--text-dark)', border: '1px solid rgba(15,23,42,0.1)', boxShadow: 'none' }}
+                                                                             >
+                                                                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                                                                                 Edit
+                                                                             </button>
+                                                                         </div>
+                                                                     </div>
+                                                                 )}
                                                             </td>
                                                         </tr>
                                                     ))}
@@ -1501,6 +1556,117 @@ function App() {
                                 </button>
                             </div>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal Edit Permohonan */}
+            {editingItem && editFormInputs && (
+                <div className="modal-overlay" onClick={() => setEditingItem(null)}>
+                    <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
+                        <div className="modal-header">
+                            <h3>Edit Data Permohonan</h3>
+                            <button className="modal-close" onClick={() => setEditingItem(null)}>&times;</button>
+                        </div>
+                        <form onSubmit={handleEditSubmit}>
+                            <div className="modal-body" style={{ padding: '1.5rem', maxHeight: '75vh', overflowY: 'auto' }}>
+                                <div className="form-group" style={{ marginBottom: '1rem' }}>
+                                    <label style={{ fontWeight: '600', fontSize: '0.85rem', display: 'block', marginBottom: '6px', color: 'var(--text-dark)' }}>Nama Pegawai</label>
+                                    <input
+                                        type="text"
+                                        value={editFormInputs.nama_pegawai}
+                                        onChange={(e) => setEditFormInputs(prev => ({ ...prev, nama_pegawai: e.target.value }))}
+                                        required
+                                        style={{ width: '100%', padding: '0.6rem', border: '1.5px solid rgba(0,0,0,0.1)', borderRadius: 'var(--radius-sm)' }}
+                                    />
+                                </div>
+                                <div className="form-group" style={{ marginBottom: '1rem' }}>
+                                    <label style={{ fontWeight: '600', fontSize: '0.85rem', display: 'block', marginBottom: '6px', color: 'var(--text-dark)' }}>NIP</label>
+                                    <input
+                                        type="text"
+                                        value={editFormInputs.nip}
+                                        onChange={(e) => setEditFormInputs(prev => ({ ...prev, nip: e.target.value }))}
+                                        required
+                                        style={{ width: '100%', padding: '0.6rem', border: '1.5px solid rgba(0,0,0,0.1)', borderRadius: 'var(--radius-sm)' }}
+                                    />
+                                </div>
+                                <div className="form-group" style={{ marginBottom: '1rem' }}>
+                                    <label style={{ fontWeight: '600', fontSize: '0.85rem', display: 'block', marginBottom: '6px', color: 'var(--text-dark)' }}>Jabatan</label>
+                                    <input
+                                        type="text"
+                                        value={editFormInputs.jabatan}
+                                        onChange={(e) => setEditFormInputs(prev => ({ ...prev, jabatan: e.target.value }))}
+                                        required
+                                        style={{ width: '100%', padding: '0.6rem', border: '1.5px solid rgba(0,0,0,0.1)', borderRadius: 'var(--radius-sm)' }}
+                                    />
+                                </div>
+                                <div className="form-group" style={{ marginBottom: '1rem' }}>
+                                    <label style={{ fontWeight: '600', fontSize: '0.85rem', display: 'block', marginBottom: '6px', color: 'var(--text-dark)' }}>Unit Kerja Asal</label>
+                                    <input
+                                        type="text"
+                                        value={editFormInputs.unit_kerja_asal}
+                                        onChange={(e) => setEditFormInputs(prev => ({ ...prev, unit_kerja_asal: e.target.value }))}
+                                        required
+                                        style={{ width: '100%', padding: '0.6rem', border: '1.5px solid rgba(0,0,0,0.1)', borderRadius: 'var(--radius-sm)' }}
+                                    />
+                                </div>
+                                <div className="form-group" style={{ marginBottom: '1rem' }}>
+                                    <label style={{ fontWeight: '600', fontSize: '0.85rem', display: 'block', marginBottom: '6px', color: 'var(--text-dark)' }}>Nomor Nota Dinas Permohonan</label>
+                                    <input
+                                        type="text"
+                                        value={editFormInputs.nomor_nota_dinas}
+                                        onChange={(e) => setEditFormInputs(prev => ({ ...prev, nomor_nota_dinas: e.target.value }))}
+                                        required
+                                        style={{ width: '100%', padding: '0.6rem', border: '1.5px solid rgba(0,0,0,0.1)', borderRadius: 'var(--radius-sm)' }}
+                                    />
+                                </div>
+                                <div className="form-group" style={{ marginBottom: '1rem' }}>
+                                    <label style={{ fontWeight: '600', fontSize: '0.85rem', display: 'block', marginBottom: '6px', color: 'var(--text-dark)' }}>Tanggal Nota Dinas Permohonan</label>
+                                    <input
+                                        type="date"
+                                        value={editFormInputs.tanggal_nota_dinas}
+                                        onChange={(e) => setEditFormInputs(prev => ({ ...prev, tanggal_nota_dinas: e.target.value }))}
+                                        required
+                                        style={{ width: '100%', padding: '0.6rem', border: '1.5px solid rgba(0,0,0,0.1)', borderRadius: 'var(--radius-sm)' }}
+                                    />
+                                </div>
+                                <div className="form-group" style={{ marginBottom: '1rem' }}>
+                                    <label style={{ fontWeight: '600', fontSize: '0.85rem', display: 'block', marginBottom: '6px', color: 'var(--text-dark)' }}>Tanggal Mulai FTB</label>
+                                    <input
+                                        type="date"
+                                        value={editFormInputs.tanggal_mulai}
+                                        onChange={(e) => setEditFormInputs(prev => ({ ...prev, tanggal_mulai: e.target.value }))}
+                                        required
+                                        style={{ width: '100%', padding: '0.6rem', border: '1.5px solid rgba(0,0,0,0.1)', borderRadius: 'var(--radius-sm)' }}
+                                    />
+                                </div>
+                                <div className="form-group" style={{ marginBottom: '1rem' }}>
+                                    <label style={{ fontWeight: '600', fontSize: '0.85rem', display: 'block', marginBottom: '6px', color: 'var(--text-dark)' }}>Tanggal Selesai FTB</label>
+                                    <input
+                                        type="date"
+                                        value={editFormInputs.tanggal_selesai}
+                                        onChange={(e) => setEditFormInputs(prev => ({ ...prev, tanggal_selesai: e.target.value }))}
+                                        required
+                                        style={{ width: '100%', padding: '0.6rem', border: '1.5px solid rgba(0,0,0,0.1)', borderRadius: 'var(--radius-sm)' }}
+                                    />
+                                </div>
+                            </div>
+                            <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', padding: '1rem 1.5rem', borderTop: '1px solid rgba(0,0,0,0.06)' }}>
+                                <button
+                                    type="button"
+                                    onClick={() => setEditingItem(null)}
+                                    style={{ padding: '0.5rem 1rem', background: '#f1f5f9', border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontWeight: '500' }}
+                                >
+                                    Batal
+                                </button>
+                                <button
+                                    type="submit"
+                                    style={{ padding: '0.5rem 1rem', background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontWeight: '500' }}
+                                >
+                                    Simpan Perubahan
+                                </button>
+                            </div>
+                        </form>
                     </div>
                 </div>
             )}
