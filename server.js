@@ -23,6 +23,15 @@ if (pgUrl) {
             ssl: { rejectUnauthorized: false }
         });
         console.log('Database: Connected to PostgreSQL (Supabase)');
+        
+        // Auto-migration: Ensure file_data column exists
+        pool.query('ALTER TABLE permohonan_ftb ADD COLUMN IF NOT EXISTS file_data TEXT', (migErr) => {
+            if (migErr) {
+                console.error('Database Migration Warning (file_data):', migErr.message);
+            } else {
+                console.log('Database Migration: file_data column verified/created');
+            }
+        });
     } catch (e) {
         console.warn('Database Warning: DATABASE_URL/POSTGRES_URL is set but "pg" module is not installed. Run "npm install pg" to use Supabase.');
     }
@@ -560,15 +569,15 @@ const server = http.createServer((req, res) => {
                         item.tanggal_mulai = formatDate(item.tanggal_mulai);
                         item.tanggal_selesai = formatDate(item.tanggal_selesai);
 
-                        const updateRecord = (alasanTolakPlain, downloadUrl) => {
+                        const updateRecord = (alasanTolakPlain, downloadUrl, fileDataBase64) => {
                             const updateQuery = `
                                 UPDATE permohonan_ftb 
-                                SET status = $1, alasan_tolak = $2, download_url = $3 
-                                WHERE id = $4 
+                                SET status = $1, alasan_tolak = $2, download_url = $3, file_data = $4
+                                WHERE id = $5 
                                 RETURNING *
                             `;
                             const alasanTolakEncrypted = alasanTolakPlain ? encryptField(alasanTolakPlain) : null;
-                            pool.query(updateQuery, [status, alasanTolakEncrypted, downloadUrl, id], (updateErr, updateRes) => {
+                            pool.query(updateQuery, [status, alasanTolakEncrypted, downloadUrl, fileDataBase64, id], (updateErr, updateRes) => {
                                 if (updateErr) {
                                     console.error('Postgres update status error:', updateErr);
                                     res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -589,13 +598,29 @@ const server = http.createServer((req, res) => {
                         };
 
                         if (status === 'Menunggu') {
-                            updateRecord(null, null);
+                            updateRecord(null, null, null);
                         } else {
-                            const downloadUrl = `/generated/ND_${status}_${id}.docx`;
-                            updateRecord(
-                                status === 'Ditolak' ? (payload.alasan_tolak || '') : null,
-                                downloadUrl
-                            );
+                            const testItemForDocx = {
+                                ...item,
+                                alasan_tolak: status === 'Ditolak' ? (payload.alasan_tolak || '') : ''
+                            };
+                            generateDocxBuffer(testItemForDocx, status).then(buffer => {
+                                const downloadUrl = `/generated/ND_${status}_${id}.docx`;
+                                const base64Data = buffer.toString('base64');
+                                updateRecord(
+                                    status === 'Ditolak' ? (payload.alasan_tolak || '') : null,
+                                    downloadUrl,
+                                    base64Data
+                                );
+                            }).catch(docxErr => {
+                                console.error('Docx generation error on status update:', docxErr);
+                                const downloadUrl = `/generated/ND_${status}_${id}.docx`;
+                                updateRecord(
+                                    status === 'Ditolak' ? (payload.alasan_tolak || '') : null,
+                                    downloadUrl,
+                                    null
+                                );
+                            });
                         }
                     });
                 } else {
@@ -620,14 +645,26 @@ const server = http.createServer((req, res) => {
 
                     if (status === 'Menunggu') {
                         currentData[index].download_url = undefined;
+                        currentData[index].file_data = undefined;
                         writeData(currentData);
                         res.writeHead(200, { 'Content-Type': 'application/json' });
                         res.end(JSON.stringify(decryptRecord(currentData[index])));
                     } else {
-                        currentData[index].download_url = `/generated/ND_${status}_${id}.docx`;
-                        writeData(currentData);
-                        res.writeHead(200, { 'Content-Type': 'application/json' });
-                        res.end(JSON.stringify(decryptRecord(currentData[index])));
+                        const itemDecrypted = decryptRecord(currentData[index]);
+                        itemDecrypted.alasan_tolak = status === 'Ditolak' ? (payload.alasan_tolak || '') : '';
+                        generateDocxBuffer(itemDecrypted, status).then(buffer => {
+                            currentData[index].download_url = `/generated/ND_${status}_${id}.docx`;
+                            currentData[index].file_data = buffer.toString('base64');
+                            writeData(currentData);
+                            res.writeHead(200, { 'Content-Type': 'application/json' });
+                            res.end(JSON.stringify(decryptRecord(currentData[index])));
+                        }).catch(docxErr => {
+                            console.error('Local JSON docx generation error:', docxErr);
+                            currentData[index].download_url = `/generated/ND_${status}_${id}.docx`;
+                            writeData(currentData);
+                            res.writeHead(200, { 'Content-Type': 'application/json' });
+                            res.end(JSON.stringify(decryptRecord(currentData[index])));
+                        });
                     }
                 }
         });
@@ -648,7 +685,19 @@ const server = http.createServer((req, res) => {
 
         const handleDataFound = async (item) => {
             try {
-                // Ensure alasan_tolak is present if Ditolak
+                // If file_data exists in database, use it directly!
+                if (item.file_data) {
+                    const buffer = Buffer.from(item.file_data, 'base64');
+                    res.writeHead(200, {
+                        'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                        'Content-Disposition': `attachment; filename=ND_${docStatus}_${recordId}.docx`,
+                        'Content-Length': buffer.length
+                    });
+                    res.end(buffer);
+                    return;
+                }
+
+                // Fallback to on-the-fly generation for older records
                 const itemForDocx = {
                     ...item,
                     alasan_tolak: docStatus === 'Ditolak' ? (item.alasan_tolak || '') : ''
@@ -661,19 +710,12 @@ const server = http.createServer((req, res) => {
                 });
                 res.end(buffer);
             } catch (genErr) {
-                console.error('Error generating docx on-the-fly:', genErr);
+                console.error('Error serving docx file:', genErr);
                 res.writeHead(200, { 'Content-Type': 'application/json' });
-                let filesInCwd = [];
-                let filesInDirname = [];
-                try { filesInCwd = fs.readdirSync(process.cwd()); } catch (e) {}
-                try { filesInDirname = fs.readdirSync(__dirname); } catch (e) {}
                 res.end(JSON.stringify({
                     error: genErr.message,
                     stack: genErr.stack,
-                    cwd: process.cwd(),
-                    dirname: __dirname,
-                    filesInCwd,
-                    filesInDirname
+                    suggestion: "Failed to generate or retrieve document. Please check templates and server logs."
                 }, null, 2));
             }
         };
