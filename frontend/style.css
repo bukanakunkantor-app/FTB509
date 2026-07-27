@@ -1447,3 +1447,37 @@ tr:hover td {
     box-shadow: 0 4px 14px rgba(79, 70, 229, 0.35);
 }
 
+/* Selected Row Highlight */
+tr.selected-row {
+    background-color: rgba(79, 70, 229, 0.04) !important;
+}
+
+tr.selected-row td {
+    border-bottom: 1.5px solid rgba(79, 70, 229, 0.15);
+}
+
+/* Checkbox Style in Table */
+table input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--primary);
+    cursor: pointer;
+    border-radius: 4px;
+    transition: var(--transition);
+}
+
+table input[type="checkbox"]:hover {
+    transform: scale(1.1);
+}
+
+/* Bulk Actions Bar Styles */
+.bulk-actions-bar {
+    animation: slideDownBulk 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05);
+}
+
+@keyframes slideDownBulk {
+    from { transform: translateY(-10px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+

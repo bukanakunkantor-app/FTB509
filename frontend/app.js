@@ -145,6 +145,67 @@ function App() {
     const [rejectionModalItem, setRejectionModalItem] = useState(null);
     const [alasanTolakInput, setAlasanTolakInput] = useState('');
 
+    // Bulk selection state
+    const [selectedIds, setSelectedIds] = useState([]);
+    const [bulkRejectionModalOpen, setBulkRejectionModalOpen] = useState(false);
+    const [bulkAlasanTolakInput, setBulkAlasanTolakInput] = useState('');
+
+    const handleSelectRow = (id) => {
+        setSelectedIds(prev => 
+            prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+        );
+    };
+
+    const handleSelectAll = () => {
+        const waitingRequests = requests.filter(r => r.status === 'Menunggu');
+        if (selectedIds.length === waitingRequests.length && waitingRequests.length > 0) {
+            setSelectedIds([]);
+        } else {
+            setSelectedIds(waitingRequests.map(r => r.id));
+        }
+    };
+
+    const handleBulkUpdateStatus = async (status, alasan_tolak = '') => {
+        if (selectedIds.length === 0) return;
+        
+        // Validation check for same KPP / ND Number
+        const selectedItems = requests.filter(r => selectedIds.includes(r.id));
+        const firstKPP = selectedItems[0]?.unit_kerja_asal;
+        const firstND = selectedItems[0]?.nomor_nota_dinas;
+        const diffKPPOrND = selectedItems.some(r => r.unit_kerja_asal !== firstKPP || r.nomor_nota_dinas !== firstND);
+        
+        if (diffKPPOrND) {
+            const confirmMerge = window.confirm("Perhatian: Permohonan yang dipilih memiliki Unit Kerja Asal atau Nomor ND yang BERBEDA. Apakah Anda yakin ingin menggabungkannya ke dalam SATU Nota Dinas?");
+            if (!confirmMerge) return;
+        }
+
+        try {
+            const res = await fetch(`${API_BASE}/permohonan/bulk-status`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ids: selectedIds, status, alasan_tolak })
+            });
+
+            if (res.ok) {
+                const updatedItems = await res.json();
+                showToast('success', `Berhasil memperbarui ${updatedItems.length} permohonan secara massal.`);
+                // Update local state list
+                setRequests(prev => prev.map(item => {
+                    const match = updatedItems.find(u => u.id === item.id);
+                    return match ? match : item;
+                }));
+                setSelectedIds([]);
+                setBulkRejectionModalOpen(false);
+                setBulkAlasanTolakInput('');
+            } else {
+                showToast('error', 'Gagal memperbarui status permohonan massal.');
+            }
+        } catch (err) {
+            showToast('error', 'Koneksi ke server gagal.');
+            console.error(err);
+        }
+    };
+
     // Calendar Selected Date state for Modal popup
     const [selectedDate, setSelectedDate] = useState(null);
     const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -1094,11 +1155,36 @@ function App() {
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                                                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" x2="9" y1="12" y2="12" /></svg>
                                                 Keluar Admin
-                                            </div>
                                         </button>
                                     </div>
 
                                     <div className="table-responsive">
+                                        {selectedIds.length > 0 && (
+                                            <div className="bulk-actions-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--slate-50)', padding: '12px 20px', borderRadius: 'var(--radius-md)', border: '1.5px dashed var(--primary)', marginBottom: '1rem' }}>
+                                                <div className="bulk-info" style={{ fontSize: '0.9rem', color: 'var(--slate-800)', fontWeight: '600' }}>
+                                                    ⚡ <span style={{ color: 'var(--primary)' }}>{selectedIds.length}</span> Permohonan Terpilih
+                                                </div>
+                                                <div className="bulk-buttons" style={{ display: 'flex', gap: '8px' }}>
+                                                    <button 
+                                                        className="btn-action approve"
+                                                        onClick={() => handleBulkUpdateStatus('Disetujui')}
+                                                        style={{ display: 'inline-flex', gap: '4px', alignItems: 'center', padding: '6px 12px', fontSize: '0.8rem' }}
+                                                    >
+                                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="20 6 9 17 4 12" /></svg>
+                                                        Setujui Gabungan
+                                                    </button>
+                                                    <button 
+                                                        className="btn-action reject"
+                                                        onClick={() => setBulkRejectionModalOpen(true)}
+                                                        style={{ display: 'inline-flex', gap: '4px', alignItems: 'center', padding: '6px 12px', fontSize: '0.8rem' }}
+                                                    >
+                                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><line x1="18" x2="6" y1="6" y2="18" /><line x1="6" x2="18" y1="6" y2="18" /></svg>
+                                                        Tolak Gabungan
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+
                                         {requests.length === 0 ? (
                                             <div className="empty-state">
                                                 <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="12" cy="12" r="10" /><line x1="8" x2="16" y1="12" y2="12" /></svg>
@@ -1108,6 +1194,13 @@ function App() {
                                             <table>
                                                 <thead>
                                                     <tr>
+                                                        <th style={{ width: '40px', textAlign: 'center' }}>
+                                                            <input
+                                                                type="checkbox"
+                                                                onChange={handleSelectAll}
+                                                                checked={requests.filter(r => r.status === 'Menunggu').length > 0 && selectedIds.length === requests.filter(r => r.status === 'Menunggu').length}
+                                                            />
+                                                        </th>
                                                         <th>Pegawai</th>
                                                         <th>Unit Kerja</th>
                                                         <th>Nomor WhatsApp</th>
@@ -1118,7 +1211,18 @@ function App() {
                                                 </thead>
                                                 <tbody>
                                                     {requests.map((item) => (
-                                                        <tr key={item.id}>
+                                                        <tr key={item.id} className={selectedIds.includes(item.id) ? 'selected-row' : ''}>
+                                                            <td style={{ textAlign: 'center', verticalAlign: 'middle' }}>
+                                                                {item.status === 'Menunggu' ? (
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={selectedIds.includes(item.id)}
+                                                                        onChange={() => handleSelectRow(item.id)}
+                                                                    />
+                                                                ) : (
+                                                                    <input type="checkbox" disabled style={{ opacity: 0.3 }} />
+                                                                )}
+                                                            </td>
                                                             <td>
                                                                 <div className="name-cell">
                                                                     <span className="name">{item.nama_pegawai}</span>
@@ -1309,6 +1413,79 @@ function App() {
                                     }}
                                 >
                                     Kirim Penolakan
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal Alasan Penolakan Massal */}
+            {bulkRejectionModalOpen && (
+                <div className="modal-overlay" onClick={() => setBulkRejectionModalOpen(false)}>
+                    <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-header" style={{ background: 'linear-gradient(135deg, var(--danger) 0%, #f43f5e 100%)' }}>
+                            <h3>Alasan Penolakan FTB Gabungan</h3>
+                            <button className="modal-close" onClick={() => setBulkRejectionModalOpen(false)}>&times;</button>
+                        </div>
+                        <div className="modal-body" style={{ padding: '1.5rem' }}>
+                            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
+                                Berikan alasan penolakan untuk <strong>{selectedIds.length} permohonan</strong> gabungan terpilih:
+                            </p>
+                            <textarea
+                                value={bulkAlasanTolakInput}
+                                onChange={(e) => setBulkAlasanTolakInput(e.target.value)}
+                                placeholder="Tulis alasan penolakan massal di sini..."
+                                rows="4"
+                                style={{
+                                    width: '100%',
+                                    padding: '0.75rem',
+                                    border: '1.5px solid rgba(15, 23, 42, 0.1)',
+                                    borderRadius: 'var(--radius-sm)',
+                                    fontSize: '0.9rem',
+                                    fontFamily: 'inherit',
+                                    outline: 'none',
+                                    resize: 'none',
+                                    marginBottom: '1.25rem'
+                                }}
+                                required
+                            />
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                                <button
+                                    onClick={() => setBulkRejectionModalOpen(false)}
+                                    style={{
+                                        padding: '0.5rem 1rem',
+                                        background: '#f1f5f9',
+                                        color: 'var(--text-muted)',
+                                        border: 'none',
+                                        borderRadius: 'var(--radius-sm)',
+                                        cursor: 'pointer',
+                                        fontSize: '0.85rem',
+                                        fontWeight: '500'
+                                    }}
+                                >
+                                    Batal
+                                </button>
+                                <button
+                                    onClick={async () => {
+                                        if (!bulkAlasanTolakInput.trim()) {
+                                            showToast('error', 'Alasan penolakan harus diisi!');
+                                            return;
+                                        }
+                                        await handleBulkUpdateStatus('Ditolak', bulkAlasanTolakInput);
+                                    }}
+                                    style={{
+                                        padding: '0.5rem 1rem',
+                                        background: 'var(--danger)',
+                                        color: '#ffffff',
+                                        border: 'none',
+                                        borderRadius: 'var(--radius-sm)',
+                                        cursor: 'pointer',
+                                        fontSize: '0.85rem',
+                                        fontWeight: '500'
+                                    }}
+                                >
+                                    Kirim Penolakan Gabungan
                                 </button>
                             </div>
                         </div>
