@@ -252,12 +252,14 @@ const generateDocxBuffer = async (items, status) => {
             }
 
             // Apply replacements for main headers and single items
-            const replacements = { ...mainReplacements };
+            const replacements = { 
+                ...mainReplacements,
+                'unit_kerja_asal': formattedUnitKerjaMain,
+                'nama_pegawai': itemList.length === 1 ? mainItem.nama_pegawai : `${mainItem.nama_pegawai}, dkk.`
+            };
             if (itemList.length === 1) {
-                replacements['nama_pegawai'] = mainItem.nama_pegawai;
                 replacements['nip'] = mainItem.nip;
                 replacements['jabatan'] = mainItem.jabatan;
-                replacements['unit_kerja_asal'] = formattedUnitKerjaMain;
                 replacements['tanggal_mulai'] = formatIndoDate(mainItem.tanggal_mulai, true);
                 replacements['tanggal_selesai'] = formatIndoDate(mainItem.tanggal_selesai, true);
             }
@@ -637,7 +639,7 @@ const server = http.createServer((req, res) => {
 
             if (pool) {
                 // Fetch all rows
-                pool.query('SELECT * FROM permohonan_ftb WHERE id = ANY($1)', [ids], (selectErr, selectRes) => {
+                pool.query('SELECT * FROM permohonan_ftb WHERE id = ANY($1::uuid[])', [ids], (selectErr, selectRes) => {
                     if (selectErr || selectRes.rows.length === 0) {
                         res.writeHead(404, { 'Content-Type': 'application/json' });
                         res.end(JSON.stringify({ error: 'No matching requests found' }));
@@ -657,8 +659,8 @@ const server = http.createServer((req, res) => {
                         const downloadUrlExpr = status === 'Menunggu' ? null : `'/generated/ND_' || $1 || '_' || id || '.docx'`;
                         
                         const updateQuery = status === 'Menunggu'
-                            ? `UPDATE permohonan_ftb SET status = $1, alasan_tolak = $2, download_url = NULL, file_data = NULL WHERE id = ANY($3) RETURNING *`
-                            : `UPDATE permohonan_ftb SET status = $1, alasan_tolak = $2, download_url = '/generated/ND_' || $1 || '_' || id::text || '.docx', file_data = $3 WHERE id = ANY($4) RETURNING *`;
+                            ? `UPDATE permohonan_ftb SET status = $1, alasan_tolak = $2, download_url = NULL, file_data = NULL WHERE id = ANY($3::uuid[]) RETURNING *`
+                            : `UPDATE permohonan_ftb SET status = $1, alasan_tolak = $2, download_url = '/generated/ND_' || $1 || '_' || id::text || '.docx', file_data = $3 WHERE id = ANY($4::uuid[]) RETURNING *`;
                         
                         const queryParams = status === 'Menunggu'
                             ? [status, alasanTolakEncrypted, ids]
