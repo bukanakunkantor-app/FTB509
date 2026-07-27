@@ -198,7 +198,8 @@ function App() {
                 setBulkRejectionModalOpen(false);
                 setBulkAlasanTolakInput('');
             } else {
-                showToast('error', 'Gagal memperbarui status permohonan massal.');
+                const errData = await res.json().catch(() => ({}));
+                showToast('error', `Gagal memperbarui status permohonan massal: ${errData.error || res.statusText}`);
             }
         } catch (err) {
             showToast('error', 'Koneksi ke server gagal.');
