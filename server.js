@@ -162,7 +162,7 @@ try {
 }
 
 // Helper to generate docx using JSZip (Cloud-native / Vercel ready) in-memory buffer
-const generateDocxBuffer = async (item, status) => {
+const generateDocxBuffer = async (items, status) => {
     if (status !== 'Disetujui' && status !== 'Ditolak') {
         throw new Error('Invalid status for document generation');
     }
@@ -178,23 +178,20 @@ const generateDocxBuffer = async (item, status) => {
         throw new Error(`Template file not found: ${templateFilename}. Searched paths: ${path.join(process.cwd(), templateFilename)}, ${path.join(__dirname, templateFilename)}, ${path.join(__dirname, '..', templateFilename)}`);
     }
 
-    // Format unit_kerja_asal to expand abbreviations (KPP -> Kantor Pelayanan Pajak) preserving other parts like Pratama
-    let formattedUnitKerja = item.unit_kerja_asal || '';
-    formattedUnitKerja = formattedUnitKerja.replace(/\bKPP\b/gi, 'Kantor Pelayanan Pajak');
+    const itemList = Array.isArray(items) ? items : [items];
+    const mainItem = itemList[0];
 
-    const replacements = {
-        'nama_pegawai': item.nama_pegawai,
-        'nip': item.nip,
-        'jabatan': item.jabatan,
-        'unit_kerja_asal': formattedUnitKerja,
-        'nomor_nota_dinas': item.nomor_nota_dinas,
-        'tanggal_nota_dinas': formatIndoDate(item.tanggal_nota_dinas, false),
-        'tanggal_mulai': formatIndoDate(item.tanggal_mulai, true),
-        'tanggal_selesai': formatIndoDate(item.tanggal_selesai, true)
+    // Format unit_kerja_asal to expand abbreviations (KPP -> Kantor Pelayanan Pajak) preserving other parts like Pratama
+    let formattedUnitKerjaMain = mainItem.unit_kerja_asal || '';
+    formattedUnitKerjaMain = formattedUnitKerjaMain.replace(/\bKPP\b/gi, 'Kantor Pelayanan Pajak');
+
+    const mainReplacements = {
+        'nomor_nota_dinas': mainItem.nomor_nota_dinas,
+        'tanggal_nota_dinas': formatIndoDate(mainItem.tanggal_nota_dinas, false)
     };
 
     if (status === 'Ditolak') {
-        replacements['alasan_tolak'] = item.alasan_tolak || '';
+        mainReplacements['alasan_tolak'] = mainItem.alasan_tolak || '';
     }
 
     if (JSZip && fs.existsSync(templatePath)) {
@@ -211,6 +208,59 @@ const generateDocxBuffer = async (item, status) => {
             // Change only red font colors (placeholder text #FF0000) to black (000000), leaving gray (#BFBFBF) for "Ditandatangani secara elektronik"
             xmlText = xmlText.replace(/<w:color\s+[^>]*?w:val="(?:FF0000|C00000|ED1C24|E00000|D00000|red)"[^>]*?\/>/gi, '<w:color w:val="000000"/>');
             xmlText = xmlText.replace(/<w:color\s+[^>]*?w:val='(?:FF0000|C00000|ED1C24|E00000|D00000|red)'[^>]*?\/>/gi, "<w:color w:val='000000'/>");
+
+            if (filename === 'word/document.xml' && itemList.length > 1) {
+                // Table Row Duplication logic for bulk list
+                const table2RowRegex = /<w:tr[\s\S]*?nama_pegawai[\s\S]*?nip[\s\S]*?jabatan[\s\S]*?unit_kerja_asal[\s\S]*?<\/w:tr>/;
+                const rowMatch = xmlText.match(table2RowRegex);
+                if (rowMatch) {
+                    const templateRowXml = rowMatch[0];
+                    const generatedRows = [];
+                    
+                    for (let i = 0; i < itemList.length; i++) {
+                        const emp = itemList[i];
+                        let empRow = templateRowXml;
+                        
+                        // Replace number cell 1 with index + 1
+                        empRow = empRow.replace(/<w:t>1<\/w:t>/g, `<w:t>${i + 1}</w:t>`);
+                        
+                        let formattedUnit = emp.unit_kerja_asal || '';
+                        formattedUnit = formattedUnit.replace(/\bKPP\b/gi, 'Kantor Pelayanan Pajak');
+
+                        const empReplacements = {
+                            'nama_pegawai': emp.nama_pegawai,
+                            'nip': emp.nip,
+                            'jabatan': emp.jabatan,
+                            'unit_kerja_asal': formattedUnit,
+                            'tanggal_mulai': formatIndoDate(emp.tanggal_mulai, true),
+                            'tanggal_selesai': formatIndoDate(emp.tanggal_selesai, true)
+                        };
+                        
+                        for (const [key, val] of Object.entries(empReplacements)) {
+                            const xmlSafeVal = String(val || '')
+                                .replace(/&/g, '&amp;')
+                                .replace(/</g, '&lt;')
+                                .replace(/>/g, '&gt;')
+                                .replace(/"/g, '&quot;')
+                                .replace(/'/g, '&apos;');
+                            empRow = empRow.split(key).join(xmlSafeVal);
+                        }
+                        generatedRows.push(empRow);
+                    }
+                    xmlText = xmlText.replace(templateRowXml, generatedRows.join(''));
+                }
+            }
+
+            // Apply replacements for main headers and single items
+            const replacements = { ...mainReplacements };
+            if (itemList.length === 1) {
+                replacements['nama_pegawai'] = mainItem.nama_pegawai;
+                replacements['nip'] = mainItem.nip;
+                replacements['jabatan'] = mainItem.jabatan;
+                replacements['unit_kerja_asal'] = formattedUnitKerjaMain;
+                replacements['tanggal_mulai'] = formatIndoDate(mainItem.tanggal_mulai, true);
+                replacements['tanggal_selesai'] = formatIndoDate(mainItem.tanggal_selesai, true);
+            }
 
             for (const [key, val] of Object.entries(replacements)) {
                 const xmlSafeVal = String(val || '')
@@ -234,8 +284,18 @@ const generateDocxBuffer = async (item, status) => {
     const scriptPath = path.join(__dirname, 'generate_docx.php');
     if (fs.existsSync(phpPath) && fs.existsSync(scriptPath)) {
         return new Promise((resolve, reject) => {
-            const tempOutputPath = path.join(__dirname, `temp_${status}_${item.id}.docx`);
-            execFile(phpPath, [scriptPath, templatePath, tempOutputPath, JSON.stringify(replacements)], (error, stdout, stderr) => {
+            const tempOutputPath = path.join(__dirname, `temp_${status}_${mainItem.id}.docx`);
+            // Note: PHP fallback only supports single item replacements here
+            const singleReplacements = {
+                ...mainReplacements,
+                'nama_pegawai': mainItem.nama_pegawai,
+                'nip': mainItem.nip,
+                'jabatan': mainItem.jabatan,
+                'unit_kerja_asal': formattedUnitKerjaMain,
+                'tanggal_mulai': formatIndoDate(mainItem.tanggal_mulai, true),
+                'tanggal_selesai': formatIndoDate(mainItem.tanggal_selesai, true)
+            };
+            execFile(phpPath, [scriptPath, templatePath, tempOutputPath, JSON.stringify(singleReplacements)], (error, stdout, stderr) => {
                 if (error) {
                     console.error('Error generating docx via PHP:', error, stderr);
                     return reject(error);
@@ -554,6 +614,166 @@ const server = http.createServer((req, res) => {
                     res.writeHead(201, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify(decryptRecord(newItemToStore)));
                 }
+        });
+        return;
+    }
+
+    // PUT /api/permohonan/bulk-status
+    if (pathname === '/api/permohonan/bulk-status' && req.method === 'PUT') {
+        getParsedBody(req, (err, payload) => {
+            if (err || !payload || !Array.isArray(payload.ids) || payload.ids.length === 0) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Invalid JSON payload. ids must be a non-empty array.' }));
+                return;
+            }
+            const { ids, status, alasan_tolak } = payload;
+            if (!status || !['Menunggu', 'Disetujui', 'Ditolak'].includes(status)) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Invalid status' }));
+                return;
+            }
+
+            const formatDate = (dVal) => dVal ? new Date(dVal).toISOString().split('T')[0] : '';
+
+            if (pool) {
+                // Fetch all rows
+                pool.query('SELECT * FROM permohonan_ftb WHERE id = ANY($1)', [ids], (selectErr, selectRes) => {
+                    if (selectErr || selectRes.rows.length === 0) {
+                        res.writeHead(404, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({ error: 'No matching requests found' }));
+                        return;
+                    }
+                    
+                    const decryptedItems = selectRes.rows.map(row => {
+                        const item = decryptRecord(row);
+                        item.tanggal_nota_dinas = formatDate(item.tanggal_nota_dinas);
+                        item.tanggal_mulai = formatDate(item.tanggal_mulai);
+                        item.tanggal_selesai = formatDate(item.tanggal_selesai);
+                        return item;
+                    });
+
+                    const updateBulkRecords = (fileDataBase64) => {
+                        const alasanTolakEncrypted = alasan_tolak ? encryptField(alasan_tolak) : null;
+                        const downloadUrlExpr = status === 'Menunggu' ? null : `'/generated/ND_' || $1 || '_' || id || '.docx'`;
+                        
+                        const updateQuery = status === 'Menunggu'
+                            ? `UPDATE permohonan_ftb SET status = $1, alasan_tolak = $2, download_url = NULL, file_data = NULL WHERE id = ANY($3) RETURNING *`
+                            : `UPDATE permohonan_ftb SET status = $1, alasan_tolak = $2, download_url = '/generated/ND_' || $1 || '_' || id || '.docx', file_data = $3 WHERE id = ANY($4) RETURNING *`;
+                        
+                        const queryParams = status === 'Menunggu'
+                            ? [status, alasanTolakEncrypted, ids]
+                            : [status, alasanTolakEncrypted, fileDataBase64, ids];
+
+                        pool.query(updateQuery, queryParams, (updateErr, updateRes) => {
+                            if (updateErr) {
+                                console.error('Postgres bulk update status error:', updateErr);
+                                res.writeHead(500, { 'Content-Type': 'application/json' });
+                                res.end(JSON.stringify({ error: 'Database error updating status' }));
+                                return;
+                            }
+                            const updatedRows = updateRes.rows.map(row => {
+                                const decrypted = decryptRecord(row);
+                                return {
+                                    ...decrypted,
+                                    tanggal_nota_dinas: formatDate(decrypted.tanggal_nota_dinas),
+                                    tanggal_mulai: formatDate(decrypted.tanggal_mulai),
+                                    tanggal_selesai: formatDate(decrypted.tanggal_selesai),
+                                    created_at: decrypted.created_at ? new Date(decrypted.created_at).toISOString() : null
+                                };
+                            });
+                            res.writeHead(200, { 'Content-Type': 'application/json' });
+                            res.end(JSON.stringify(updatedRows));
+                        });
+                    };
+
+                    if (status === 'Menunggu') {
+                        updateBulkRecords(null);
+                    } else {
+                        const itemsForDocx = decryptedItems.map(item => ({
+                            ...item,
+                            alasan_tolak: status === 'Ditolak' ? (alasan_tolak || '') : ''
+                        }));
+
+                        generateDocxBuffer(itemsForDocx, status).then(buffer => {
+                            const base64Data = buffer.toString('base64');
+                            updateBulkRecords(base64Data);
+                        }).catch(docxErr => {
+                            console.error('Bulk Docx generation error:', docxErr);
+                            updateBulkRecords(null);
+                        });
+                    }
+                });
+            } else {
+                // Local JSON database fallback
+                const currentData = readData();
+                const matchedIndices = [];
+                const decryptedItems = [];
+
+                ids.forEach(id => {
+                    const index = currentData.findIndex(item => item.id === id);
+                    if (index !== -1) {
+                        matchedIndices.push(index);
+                        const item = decryptRecord(currentData[index]);
+                        item.tanggal_nota_dinas = formatDate(item.tanggal_nota_dinas);
+                        item.tanggal_mulai = formatDate(item.tanggal_mulai);
+                        item.tanggal_selesai = formatDate(item.tanggal_selesai);
+                        decryptedItems.push(item);
+                    }
+                });
+
+                if (matchedIndices.length === 0) {
+                    res.writeHead(404, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: 'No matching requests found' }));
+                    return;
+                }
+
+                if (status === 'Menunggu') {
+                    matchedIndices.forEach(idx => {
+                        currentData[idx].status = status;
+                        currentData[idx].alasan_tolak = undefined;
+                        currentData[idx].download_url = undefined;
+                        currentData[idx].file_data = undefined;
+                    });
+                    writeData(currentData);
+                    const updated = matchedIndices.map(idx => decryptRecord(currentData[idx]));
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify(updated));
+                } else {
+                    const itemsForDocx = decryptedItems.map(item => ({
+                        ...item,
+                        alasan_tolak: status === 'Ditolak' ? (alasan_tolak || '') : ''
+                    }));
+
+                    generateDocxBuffer(itemsForDocx, status).then(buffer => {
+                        const base64Data = buffer.toString('base64');
+
+                        matchedIndices.forEach(idx => {
+                            const itemObj = currentData[idx];
+                            currentData[idx].status = status;
+                            currentData[idx].alasan_tolak = status === 'Ditolak' ? encryptField(alasan_tolak || '') : undefined;
+                            currentData[idx].download_url = `/generated/ND_${status}_${itemObj.id}.docx`;
+                            currentData[idx].file_data = base64Data;
+                        });
+
+                        writeData(currentData);
+                        const updated = matchedIndices.map(idx => decryptRecord(currentData[idx]));
+                        res.writeHead(200, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify(updated));
+                    }).catch(docxErr => {
+                        console.error('Local bulk docx error:', docxErr);
+                        matchedIndices.forEach(idx => {
+                            const itemObj = currentData[idx];
+                            currentData[idx].status = status;
+                            currentData[idx].alasan_tolak = status === 'Ditolak' ? encryptField(alasan_tolak || '') : undefined;
+                            currentData[idx].download_url = `/generated/ND_${status}_${itemObj.id}.docx`;
+                        });
+                        writeData(currentData);
+                        const updated = matchedIndices.map(idx => decryptRecord(currentData[idx]));
+                        res.writeHead(200, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify(updated));
+                    });
+                }
+            }
         });
         return;
     }
