@@ -662,8 +662,19 @@ const server = http.createServer((req, res) => {
                 res.end(buffer);
             } catch (genErr) {
                 console.error('Error generating docx on-the-fly:', genErr);
-                res.writeHead(500, { 'Content-Type': 'text/html' });
-                res.end('<h1>500 Internal Server Error Generating Document</h1>');
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                let filesInCwd = [];
+                let filesInDirname = [];
+                try { filesInCwd = fs.readdirSync(process.cwd()); } catch (e) {}
+                try { filesInDirname = fs.readdirSync(__dirname); } catch (e) {}
+                res.end(JSON.stringify({
+                    error: genErr.message,
+                    stack: genErr.stack,
+                    cwd: process.cwd(),
+                    dirname: __dirname,
+                    filesInCwd,
+                    filesInDirname
+                }, null, 2));
             }
         };
 
