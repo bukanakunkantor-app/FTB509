@@ -105,8 +105,30 @@ function writeData(data) {
 }
 
 // Helper to format date to Indonesian format
-const formatIndoDate = (dateStr, includeDay = true) => {
-    if (!dateStr) return '';
+const formatIndoDate = (dateVal, includeDay = true) => {
+    if (!dateVal) return '';
+    
+    let dateStr = '';
+    if (dateVal instanceof Date) {
+        const year = dateVal.getFullYear();
+        const month = String(dateVal.getMonth() + 1).padStart(2, '0');
+        const date = String(dateVal.getDate()).padStart(2, '0');
+        dateStr = `${year}-${month}-${date}`;
+    } else if (typeof dateVal === 'string') {
+        // If it is an ISO string, extract the date part
+        if (dateVal.includes('T')) {
+            dateStr = dateVal.split('T')[0];
+        } else {
+            dateStr = dateVal;
+        }
+    } else {
+        try {
+            dateStr = new Date(dateVal).toISOString().split('T')[0];
+        } catch (e) {
+            dateStr = String(dateVal);
+        }
+    }
+
     const parts = dateStr.split('-');
     if (parts.length !== 3) return dateStr;
     const year = parseInt(parts[0], 10);
