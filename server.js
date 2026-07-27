@@ -136,7 +136,16 @@ const generateDocxBuffer = async (item, status) => {
         throw new Error('Invalid status for document generation');
     }
     const templateFilename = status === 'Disetujui' ? 'Setuju.docx' : 'Tolak.docx';
-    const templatePath = path.join(__dirname, templateFilename);
+    let templatePath = path.join(process.cwd(), templateFilename);
+    if (!fs.existsSync(templatePath)) {
+        templatePath = path.join(__dirname, templateFilename);
+    }
+    if (!fs.existsSync(templatePath)) {
+        templatePath = path.join(__dirname, '..', templateFilename);
+    }
+    if (!fs.existsSync(templatePath)) {
+        throw new Error(`Template file not found: ${templateFilename}. Searched paths: ${path.join(process.cwd(), templateFilename)}, ${path.join(__dirname, templateFilename)}, ${path.join(__dirname, '..', templateFilename)}`);
+    }
 
     // Format unit_kerja_asal to expand abbreviations (KPP -> Kantor Pelayanan Pajak) preserving other parts like Pratama
     let formattedUnitKerja = item.unit_kerja_asal || '';
